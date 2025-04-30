@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import pickle
 import numpy as np
 import os
+from ewcl_toolkit.ewcl_static_tool import ewcl_score_protein
 
 app = FastAPI()
 
@@ -29,5 +30,18 @@ async def run_inference(request: Request):
         X = np.array([[data["score"], data["avgEntropy"], data["minEntropy"], data["maxEntropy"]]])
         prediction = model.predict(X)[0]
         return {"collapseRisk": float(prediction)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/runeucl")
+async def run_ewcl(request: Request):
+    data = await request.json()
+    sequence = data.get("sequence")
+    if not sequence:
+        return {"error": "Missing 'sequence' in request."}
+    
+    try:
+        entropy_map = ewcl_score_protein(sequence)
+        return {"entropyMap": entropy_map}
     except Exception as e:
         return {"error": str(e)}
