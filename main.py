@@ -7,6 +7,7 @@ from ewcl_toolkit.ewcl_static_tool import ewcl_score_protein
 
 app = FastAPI()
 
+# Allow all origins (for now)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,14 +16,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Load AI model
 model_path = os.path.join("models", "ewcl_model.pkl")
-
 try:
     model = pickle.load(open(model_path, "rb"))
 except Exception as e:
     model = None
     print(f"❌ Failed to load model: {e}")
 
+# 🔹 AI prediction endpoint
 @app.post("/runaiinference")
 async def run_inference(request: Request):
     data = await request.json()
@@ -33,13 +35,13 @@ async def run_inference(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
+# 🔹 Real EWCL entropy map endpoint
 @app.post("/runeucl")
 async def run_ewcl(request: Request):
     data = await request.json()
-    sequence = data.get("sequence")
+    sequence = data.get("sequence", "")
     if not sequence:
-        return {"error": "Missing 'sequence' in request."}
-    
+        return {"error": "Missing protein sequence"}
     try:
         entropy_map = ewcl_score_protein(sequence)
         return {"entropyMap": entropy_map}
