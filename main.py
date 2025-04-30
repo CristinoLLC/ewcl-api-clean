@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import pickle
 import numpy as np
 import os
@@ -36,14 +37,13 @@ async def run_inference(request: Request):
         return {"error": str(e)}
 
 # 🔹 Real EWCL entropy map endpoint
+class SequenceRequest(BaseModel):
+    sequence: str
+
 @app.post("/runeucl")
-async def run_ewcl(request: Request):
-    data = await request.json()
-    sequence = data.get("sequence", "")
-    if not sequence:
-        return {"error": "Missing protein sequence"}
+async def run_ewcl(request: SequenceRequest):
     try:
-        entropy_map = ewcl_score_protein(sequence)
-        return {"entropyMap": entropy_map}
+        scores = ewcl_score_protein(request.sequence)
+        return scores
     except Exception as e:
         return {"error": str(e)}
