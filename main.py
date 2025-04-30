@@ -41,9 +41,9 @@ class SequenceRequest(BaseModel):
     sequence: str
 
 @app.post("/runeucl")
-async def run_ewcl(request: SequenceRequest):
+async def run_ewcl(req: SequenceRequest):
     try:
-        scores = ewcl_score_protein(request.sequence)
-        return scores
+        result = ewcl_score_protein(req.sequence)
+        return result
     except Exception as e:
         return {"error": str(e)}
