@@ -4,11 +4,11 @@ from pydantic import BaseModel
 import pickle
 import numpy as np
 import os
+
 from ewcl_toolkit.ewcl_static_tool import ewcl_score_protein
 
 app = FastAPI()
 
-# Allow all origins (for now)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,15 +17,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load AI model
+# ✅ Define the input model
+class SequenceRequest(BaseModel):
+    sequence: str
+
 model_path = os.path.join("models", "ewcl_model.pkl")
+model = None
+
 try:
-    model = pickle.load(open(model_path, "rb"))
+    with open(model_path, "rb") as f:
+        model = pickle.load(f)
 except Exception as e:
-    model = None
     print(f"❌ Failed to load model: {e}")
 
-# 🔹 AI prediction endpoint
+@app.get("/")
+def root():
+    return {"message": "EWCL API is running"}
+
 @app.post("/runaiinference")
 async def run_inference(request: Request):
     data = await request.json()
@@ -36,14 +44,11 @@ async def run_inference(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
-# 🔹 Real EWCL entropy map endpoint
-class SequenceRequest(BaseModel):
-    sequence: str
-
+# ✅ Fix: Attach the SequenceRequest as input body
 @app.post("/runeucl")
-async def run_ewcl(req: SequenceRequest):
+def run_ewcl(req: SequenceRequest):
     try:
         result = ewcl_score_protein(req.sequence)
-        return result
+        return {"ewcl_map": result}
     except Exception as e:
         return {"error": str(e)}
