@@ -35,9 +35,15 @@ except Exception as e:
 def root():
     return {"status": "online", "message": "EWCL API running"}
 
+# ✅ Update health check for Render compatibility
 @app.get("/health")
-def health_check():
-    return JSONResponse(content={"status": "healthy"})
+def health():
+    return JSONResponse(status_code=200, content={"ok": True})
+
+# ✅ Add fallback handler for POST to root path
+@app.post("/")
+def fallback_root():
+    return JSONResponse(status_code=405, content={"error": "Use /analyze or /analyze/her2"})
 
 @app.post("/runaiinference")
 async def run_inference(request: Request):
@@ -57,51 +63,21 @@ def run_ewcl(req: SequenceRequest):
     except Exception as e:
         return {"error": str(e)}
 
-# Updated: Combined analyze endpoint for both JSON and file uploads
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(None), req: SequenceRequest = None):
-    try:
-        # Case 1: File upload
-        if file:
-            contents = await file.read()
-            # Try to decode as text
-            try:
-                sequence = contents.decode("utf-8")
-                # Here you would add PDB file parsing if needed
-            except UnicodeDecodeError:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Uploaded file is not valid text", "status": "error"}
-                )
-                
-            result = ewcl_score_protein(sequence)
-            return {
-                "filename": file.filename,
-                "ewcl_map": result,
-                "status": "success"
-            }
-        
-        # Case 2: JSON body with sequence
-        elif req and req.sequence:
-            result = ewcl_score_protein(req.sequence)
-            return {"ewcl_map": result, "status": "success"}
-        
-        # Case 3: No valid input
-        else:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Please provide either a file or a sequence", "status": "error"}
-            )
-            
-    except Exception as e:
-        return JSONResponse(
-            status_code=500, 
-            content={"error": str(e), "status": "error"}
-        )
+async def analyze(file: UploadFile = File(...)):
+    # Only handles file uploads
+    # Minimal functionality
 
-# Keep the protein ID endpoint
+@app.post("/analyze/her2")
+async def analyze_her2(file: UploadFile = File(...)):
+    # Hardcoded for one specific protein
+    # Would need duplicate endpoints for each protein
+
 @app.post("/analyze/{protein_id}")
 async def analyze_by_id(protein_id: str):
+    # Dynamic protein ID parameter
+    # Supports multiple proteins (HER2, BRCA2, etc.)
+    # Can be easily extended
     try:
         protein_sequences = {
             "HER2": "MKLRLPASPETHLDMLRHLYQGCQVVQGNLELTYLPTNASLSFLQDIQEVQGYVLIAHNQVRQVPLQRLRIVRGTQLFEDNYALAVLDNGDPLNNTTPVTGASPGGLRELQLRSLTEILKGGVLIQRNPQLCYQDTILWKDIFHKNNQLALTLIDTNRSRACHPCSPMCKGSRCWGESSEDCQSLTRTVCAGGCARCKGPLPTDCCHEQCAAGCTGPKHSDCLACLHFNHSGICELHCPALVTYNTDTFESMPNPEGRYTFGASCVTACPYNYLSTDVGSCTLVCPLHNQEVTAEDGTQRCEKCSKPCARVCYGLGMEHLREVRAVTSANIQEFAGCKKIFGSLAFLPESFDGDPASNTAPLQPEQLQVFETLEEITGYLYISAWPDSLPDLSVFQNLQVIRGRILHNGAYSLTLQGLGISWLGLRSLRELGSGLALIHHNTHLCFVHTVPWDQLFRNPHQALLHTANRPEDECVGEGLACHQLCARGHCWGPGPTQCVNCSQFLRGQECVEECRVLQGLPREYVNARHCLPCHPECQPQNGSVTCFGPEADQCVACAHYKDPPFCVARCPSGVKPDLSYMPIWKFPDEEGACQPCPINCTHSCVDLDDKGCPAEQRASPLTSIISAVVGILLVVVLGVVFGILIKRRQQKIRKYTMRRLLQETELVEPLTPSGAMPNQAQMRILKETELRKVKVLGSGAFGTVYKGIWIPDGENVKIPVAIKVLRENTSPKANKEILDEAYVMAGVGSPYVSRLLGICLTSTVQLVTQLMPYGCLLDHVRENRGRLGSQDLLNWCMQIAKGMSYLEDVRLVHRDLAARNVLVKSPNHVKITDFGLARLLDIDETEYHADGGKVPIKWMALESILRRRFTHQSDVWSYGVTVWELMTFGAKPYDGIPAREIPDLLEKGERGERPTEMPTPKANKECVQREAKSEKFGMGSSPKDS", 
