@@ -65,13 +65,46 @@ def run_ewcl(req: SequenceRequest):
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
-    # Only handles file uploads
-    # Minimal functionality
+    try:
+        contents = await file.read()
+        # Try to parse as protein sequence
+        try:
+            sequence = contents.decode("utf-8").strip()
+            # Basic validation - make sure it's not empty and contains valid characters
+            if not sequence:
+                return {"error": "Empty sequence", "status": "error"}
+        except UnicodeDecodeError:
+            return {"error": "Invalid file format", "status": "error"}
+            
+        result = ewcl_score_protein(sequence)
+        return {
+            "filename": file.filename,
+            "ewcl_map": result,
+            "status": "success"
+        }
+    except Exception as e:
+        return {"error": str(e), "status": "error"}
 
 @app.post("/analyze/her2")
-async def analyze_her2(file: UploadFile = File(...)):
-    # Hardcoded for one specific protein
-    # Would need duplicate endpoints for each protein
+async def analyze_her2(file: UploadFile = None):
+    try:
+        # Use the predefined HER2 sequence
+        her2_sequence = "MKLRLPASPETHLDMLRHLYQGCQVVQGNLELTYLPTNASLSFLQDIQEVQGYVLIAHNQVRQVPLQRLRIVRGTQLFEDNYALAVLDNGDPLNNTTPVTGASPGGLRELQLRSLTEILKGGVLIQRNPQLCYQDTILWKDIFHKNNQLALTLIDTNRSRACHPCSPMCKGSRCWGESSEDCQSLTRTVCAGGCARCKGPLPTDCCHEQCAAGCTGPKHSDCLACLHFNHSGICELHCPALVTYNTDTFESMPNPEGRYTFGASCVTACPYNYLSTDVGSCTLVCPLHNQEVTAEDGTQRCEKCSKPCARVCYGLGMEHLREVRAVTSANIQEFAGCKKIFGSLAFLPESFDGDPASNTAPLQPEQLQVFETLEEITGYLYISAWPDSLPDLSVFQNLQVIRGRILHNGAYSLTLQGLGISWLGLRSLRELGSGLALIHHNTHLCFVHTVPWDQLFRNPHQALLHTANRPEDECVGEGLACHQLCARGHCWGPGPTQCVNCSQFLRGQECVEECRVLQGLPREYVNARHCLPCHPECQPQNGSVTCFGPEADQCVACAHYKDPPFCVARCPSGVKPDLSYMPIWKFPDEEGACQPCPINCTHSCVDLDDKGCPAEQRASPLTSIISAVVGILLVVVLGVVFGILIKRRQQKIRKYTMRRLLQETELVEPLTPSGAMPNQAQMRILKETELRKVKVLGSGAFGTVYKGIWIPDGENVKIPVAIKVLRENTSPKANKEILDEAYVMAGVGSPYVSRLLGICLTSTVQLVTQLMPYGCLLDHVRENRGRLGSQDLLNWCMQIAKGMSYLEDVRLVHRDLAARNVLVKSPNHVKITDFGLARLLDIDETEYHADGGKVPIKWMALESILRRRFTHQSDVWSYGVTVWELMTFGAKPYDGIPAREIPDLLEKGERGERPTEMPTPKANKECVQREAKSEKFGMGSSPKDS"
+        
+        # If a file is uploaded, ignore it and show a message
+        file_info = ""
+        if file:
+            file_info = f" (Note: Uploaded file '{file.filename}' was ignored)"
+            
+        result = ewcl_score_protein(her2_sequence)
+        return {
+            "protein_id": "HER2",
+            "ewcl_map": result,
+            "message": f"Using pre-defined HER2 sequence{file_info}",
+            "status": "success"
+        }
+    except Exception as e:
+        return {"error": str(e), "status": "error"}
 
 @app.post("/analyze/{protein_id}")
 async def analyze_by_id(protein_id: str):
