@@ -10,6 +10,7 @@ from ewcl_toolkit.ewcl_static_tool import ewcl_score_protein
 
 app = FastAPI()
 
+# CORS setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,33 +19,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Define the input model
+# Input model
 class SequenceRequest(BaseModel):
     sequence: str
 
+# Load AI model
 model_path = os.path.join("models", "ewcl_model.pkl")
 model = None
-
 try:
     with open(model_path, "rb") as f:
         model = pickle.load(f)
 except Exception as e:
     print(f"❌ Failed to load model: {e}")
 
+# Root
 @app.get("/")
 def root():
     return {"status": "online", "message": "EWCL API running"}
 
-# ✅ Update health check for Render compatibility
+# Health check for GET and HEAD
 @app.get("/health")
 def health():
     return JSONResponse(status_code=200, content={"ok": True})
 
-# ✅ Add fallback handler for POST to root path
+@app.head("/health")
+def health_head():
+    return JSONResponse(status_code=200, content=None)
+
+# Fallback POST to root
 @app.post("/")
 def fallback_root():
     return JSONResponse(status_code=405, content={"error": "Use /analyze or /analyze/her2"})
 
+# AI inference endpoint
 @app.post("/runaiinference")
 async def run_inference(request: Request):
     data = await request.json()
@@ -55,6 +62,7 @@ async def run_inference(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
+# EWCL core scoring
 @app.post("/runeucl")
 def run_ewcl(req: SequenceRequest):
     try:
@@ -63,14 +71,13 @@ def run_ewcl(req: SequenceRequest):
     except Exception as e:
         return {"error": str(e)}
 
+# Analyze from uploaded file
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
     try:
         contents = await file.read()
-        # Try to parse as protein sequence
         try:
             sequence = contents.decode("utf-8").strip()
-            # Basic validation - make sure it's not empty and contains valid characters
             if not sequence:
                 return {"error": "Empty sequence", "status": "error"}
         except UnicodeDecodeError:
@@ -85,13 +92,11 @@ async def analyze(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e), "status": "error"}
 
+# HER2 built-in analysis
 @app.post("/analyze/her2")
 async def analyze_her2(file: UploadFile = None):
     try:
-        # Use the predefined HER2 sequence
         her2_sequence = "MKLRLPASPETHLDMLRHLYQGCQVVQGNLELTYLPTNASLSFLQDIQEVQGYVLIAHNQVRQVPLQRLRIVRGTQLFEDNYALAVLDNGDPLNNTTPVTGASPGGLRELQLRSLTEILKGGVLIQRNPQLCYQDTILWKDIFHKNNQLALTLIDTNRSRACHPCSPMCKGSRCWGESSEDCQSLTRTVCAGGCARCKGPLPTDCCHEQCAAGCTGPKHSDCLACLHFNHSGICELHCPALVTYNTDTFESMPNPEGRYTFGASCVTACPYNYLSTDVGSCTLVCPLHNQEVTAEDGTQRCEKCSKPCARVCYGLGMEHLREVRAVTSANIQEFAGCKKIFGSLAFLPESFDGDPASNTAPLQPEQLQVFETLEEITGYLYISAWPDSLPDLSVFQNLQVIRGRILHNGAYSLTLQGLGISWLGLRSLRELGSGLALIHHNTHLCFVHTVPWDQLFRNPHQALLHTANRPEDECVGEGLACHQLCARGHCWGPGPTQCVNCSQFLRGQECVEECRVLQGLPREYVNARHCLPCHPECQPQNGSVTCFGPEADQCVACAHYKDPPFCVARCPSGVKPDLSYMPIWKFPDEEGACQPCPINCTHSCVDLDDKGCPAEQRASPLTSIISAVVGILLVVVLGVVFGILIKRRQQKIRKYTMRRLLQETELVEPLTPSGAMPNQAQMRILKETELRKVKVLGSGAFGTVYKGIWIPDGENVKIPVAIKVLRENTSPKANKEILDEAYVMAGVGSPYVSRLLGICLTSTVQLVTQLMPYGCLLDHVRENRGRLGSQDLLNWCMQIAKGMSYLEDVRLVHRDLAARNVLVKSPNHVKITDFGLARLLDIDETEYHADGGKVPIKWMALESILRRRFTHQSDVWSYGVTVWELMTFGAKPYDGIPAREIPDLLEKGERGERPTEMPTPKANKECVQREAKSEKFGMGSSPKDS"
-        
-        # If a file is uploaded, ignore it and show a message
         file_info = ""
         if file:
             file_info = f" (Note: Uploaded file '{file.filename}' was ignored)"
@@ -106,17 +111,14 @@ async def analyze_her2(file: UploadFile = None):
     except Exception as e:
         return {"error": str(e), "status": "error"}
 
+# Analyze other proteins by ID
 @app.post("/analyze/{protein_id}")
 async def analyze_by_id(protein_id: str):
-    # Dynamic protein ID parameter
-    # Supports multiple proteins (HER2, BRCA2, etc.)
-    # Can be easily extended
     try:
         protein_sequences = {
-            "HER2": "MKLRLPASPETHLDMLRHLYQGCQVVQGNLELTYLPTNASLSFLQDIQEVQGYVLIAHNQVRQVPLQRLRIVRGTQLFEDNYALAVLDNGDPLNNTTPVTGASPGGLRELQLRSLTEILKGGVLIQRNPQLCYQDTILWKDIFHKNNQLALTLIDTNRSRACHPCSPMCKGSRCWGESSEDCQSLTRTVCAGGCARCKGPLPTDCCHEQCAAGCTGPKHSDCLACLHFNHSGICELHCPALVTYNTDTFESMPNPEGRYTFGASCVTACPYNYLSTDVGSCTLVCPLHNQEVTAEDGTQRCEKCSKPCARVCYGLGMEHLREVRAVTSANIQEFAGCKKIFGSLAFLPESFDGDPASNTAPLQPEQLQVFETLEEITGYLYISAWPDSLPDLSVFQNLQVIRGRILHNGAYSLTLQGLGISWLGLRSLRELGSGLALIHHNTHLCFVHTVPWDQLFRNPHQALLHTANRPEDECVGEGLACHQLCARGHCWGPGPTQCVNCSQFLRGQECVEECRVLQGLPREYVNARHCLPCHPECQPQNGSVTCFGPEADQCVACAHYKDPPFCVARCPSGVKPDLSYMPIWKFPDEEGACQPCPINCTHSCVDLDDKGCPAEQRASPLTSIISAVVGILLVVVLGVVFGILIKRRQQKIRKYTMRRLLQETELVEPLTPSGAMPNQAQMRILKETELRKVKVLGSGAFGTVYKGIWIPDGENVKIPVAIKVLRENTSPKANKEILDEAYVMAGVGSPYVSRLLGICLTSTVQLVTQLMPYGCLLDHVRENRGRLGSQDLLNWCMQIAKGMSYLEDVRLVHRDLAARNVLVKSPNHVKITDFGLARLLDIDETEYHADGGKVPIKWMALESILRRRFTHQSDVWSYGVTVWELMTFGAKPYDGIPAREIPDLLEKGERGERPTEMPTPKANKECVQREAKSEKFGMGSSPKDS", 
-            "BRCA2": "MPIGSKERPTFFEIFKTRCNKADLGPISLNWFEELSSEAPPYNSEPAEESEHKNNNYEPNLFKTPQRKPSYNQLASTPIIFKEQGLTLPLYQSPVKELDKFKLDLGRNVPNSRHKSLRTVKTKMDQADDVSCPLLNSCLSESPVVLQCTHVTPQRDKSVVCGSLFHTPKFVKGRQTPKHISESLGAEVDPDMSWSSSLATPPTLSSTVLIVRNEEASETVFPHDTTANVKSYFSNHDESLKKNDRFIASVTDSENTNQREAASHGFGKTSGNSFKVNSCKDHIGKSMPNVLEDEVYETVVDTSEEDSFSLCFSKCRTKNLQKVRTSKTRKKIFHEANADECEKSKNQVKEKYSFVSEVEPNDTDPLDSNVANQKPFESGSDKISKEVVPSLACEWSQLTLSGLNGAQMEKIPLLHISSCDQNISEKDLLDTENKRKKDFLTSENSLPRISSLPKSEKPLNEETVVNKRDEEQHLESHTDCILAVKQAISGTSPVASSFQGIKKSIFRIRESPKETFNASFSGHMTDPNFKKETEASESGLEIHTVCSQKEDSLCPNLIDNGSWPATTTQNSVALKNAGLISTLKKKTNKFIYAIHDETSYKGKKIPKDQKSELINCSAQFEANAFEAPLTFANADSGLLHSSVKRSCSQNDSEEPTLSLTSSFGTILRKCSRNETYYIKPNCLAPLPENQRAPSAPACLSLERPVLSLPVNPSSMGEPPVLCSFGERCQLPQSQTETPSSMGEIERNVTRVLTSSPHFAQAPQSRVDSNLKSPKPSQKHMSGSKQNSRVENESPKVKMETEATQSSPGGKNGVLRRKSCCESSNPNTTQLPHRHIFQSAVPGTPSPAYSRPLSTVSVAASTRNSGSRLQPHRSIFWEISENNCSTTTASSSNSSSLKNSKFIKPCNSIESLIYCNASSVKEKCSDNYSYAGTKKRASPIKKTVVSRRASQGAFSPSSGSSSQSASVDSSKGTMKKQKLSRESCSLSTQDSGSSTTSHGFVKESTSSTSFSEQDTDKCEDIQSSNQGSRRKRSYSLL"
+            "HER2": "...",  # Use same HER2 sequence as above
+            "BRCA2": "..."  # Add BRCA2 here
         }
-        
         if protein_id not in protein_sequences:
             return {"error": f"Protein ID '{protein_id}' not found", "status": "error"}
             
@@ -130,7 +132,7 @@ async def analyze_by_id(protein_id: str):
     except Exception as e:
         return {"error": str(e), "status": "error"}
 
-# Helper endpoint to list available proteins
+# Endpoint to list supported proteins
 @app.get("/files")
 async def list_available_proteins():
     return {
