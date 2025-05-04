@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import pickle
 import numpy as np
@@ -32,7 +33,11 @@ except Exception as e:
 
 @app.get("/")
 def root():
-    return {"message": "EWCL API is running"}
+    return {"status": "online", "message": "EWCL API running"}
+
+@app.get("/health")
+def health_check():
+    return JSONResponse(content={"status": "healthy"})
 
 @app.post("/runaiinference")
 async def run_inference(request: Request):
@@ -52,3 +57,12 @@ def run_ewcl(req: SequenceRequest):
         return {"ewcl_map": result}
     except Exception as e:
         return {"error": str(e)}
+
+# Add an /analyze endpoint that uses the same functionality as /runeucl
+@app.post("/analyze")
+def analyze(req: SequenceRequest):
+    try:
+        result = ewcl_score_protein(req.sequence)
+        return {"ewcl_map": result, "status": "success"}
+    except Exception as e:
+        return {"error": str(e), "status": "error"}
