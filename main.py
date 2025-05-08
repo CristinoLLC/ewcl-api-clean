@@ -18,9 +18,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Input model
+# ✅ Request/Response models
 class SequenceRequest(BaseModel):
     sequence: str
+
+class EWCLRequest(BaseModel):
+    structure: str               # PDB or sequence content
+    entropyMethod: str = "shannon"
+    weightingFactor: float = 1.0
+    temperature: float = 298.0
+
+class EWCLResponse(BaseModel):
+    scores: dict
+    summary: dict
+    status: str = "success"
 
 # ✅ Load the final EWCL model
 model_path = os.path.join("models", "ewcl_model_final.pkl")
@@ -47,17 +58,88 @@ def health_head():
 def fallback_root():
     return JSONResponse(status_code=405, content={"error": "Use /analyze or /predict"})
 
-# New primary prediction endpoint
-@app.post("/predict")
-async def predict_entropy_score(file: UploadFile = File(...)):
+# ✅ Enhanced main endpoint with Pydantic models
+@app.post("/analyze", response_model=EWCLResponse)
+async def analyze_structure(req: EWCLRequest):
     try:
-        content = await file.read()
-        with open("temp.pdb", "wb") as f:
-            f.write(content)
+        # Process the sequence/structure
+        ewcl_map = ewcl_score_protein(req.structure)
+        
+        # Calculate summary statistics
+        scores_list = list(ewcl_map.values())
+        avg_score = float(np.mean(scores_list)) if scores_list else 0
+        min_score = min(scores_list) if scores_list else 0
+        max_score = max(scores_list) if scores_list else 0
+        
+        # Run AI prediction
+        collapse_risk = None
+        if model:
+            X = np.array([[avg_score, avg_score, min_score, max_score]])
+            collapse_risk = float(model.predict(X)[0])
+        
+        return {
+            "scores": ewcl_map,
+            "summary": {
+                "method": req.entropyMethod,
+                "mean_score": avg_score,
+                "min_score": min_score,
+                "max_score": max_score,
+                "collapse_risk": collapse_risk,
+                "weightingFactor": req.weightingFactor,
+                "temperature": req.temperature
+            },
+            "status": "success"
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, 
+            content={
+                "scores": {},
+                "summary": {},
+                "status": "error",
+                "error": str(e)
+            }
+        )
 
-        # Extract features from PDB file
-        # run_entropy_pipeline removed, update required
-        return {"error": "run_entropy_pipeline function is no longer available"}
+# ✅ File upload version of analyze
+@app.post("/analyze-file")
+async def analyze_file(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        
+        # Decode sequence
+        try:
+            sequence = contents.decode("utf-8").strip()
+            if not sequence:
+                return {"error": "Empty sequence", "status": "error"}
+        except UnicodeDecodeError:
+            return {"error": "Invalid file format", "status": "error"}
+
+        # Run EWCL scoring
+        ewcl_map = ewcl_score_protein(sequence)
+        scores_list = list(ewcl_map.values())
+        avg_score = float(np.mean(scores_list)) if scores_list else 0
+        min_score = min(scores_list) if scores_list else 0
+        max_score = max(scores_list) if scores_list else 0
+
+        # Run AI prediction
+        collapse_risk = None
+        if model:
+            X = np.array([[avg_score, avg_score, min_score, max_score]])
+            collapse_risk = float(model.predict(X)[0])
+
+        return {
+            "filename": file.filename,
+            "scores": ewcl_map,
+            "summary": {
+                "method": "shannon",
+                "mean_score": avg_score,
+                "min_score": min_score,
+                "max_score": max_score,
+                "collapse_risk": collapse_risk
+            },
+            "status": "success"
+        }
     except Exception as e:
         return {"error": str(e), "status": "error"}
 
@@ -79,38 +161,3 @@ def run_ewcl(req: SequenceRequest):
         return {"ewcl_map": result}
     except Exception as e:
         return {"error": str(e)}
-
-@app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
-    try:
-        contents = await file.read()
-        
-        # Decode sequence
-        try:
-            sequence = contents.decode("utf-8").strip()
-            if not sequence:
-                return {"error": "Empty sequence", "status": "error"}
-        except UnicodeDecodeError:
-            return {"error": "Invalid file format", "status": "error"}
-
-        # Run EWCL scoring
-        ewcl_map = ewcl_score_protein(sequence)
-        score = np.mean(list(ewcl_map.values()))
-        min_entropy = min(ewcl_map.values())
-        max_entropy = max(ewcl_map.values())
-
-        # Run AI prediction
-        if model:
-            X = np.array([[score, np.mean(list(ewcl_map.values())), min_entropy, max_entropy]])
-            collapse_risk = float(model.predict(X)[0])
-        else:
-            collapse_risk = None
-
-        return {
-            "filename": file.filename,
-            "ewcl_map": ewcl_map,
-            "collapse_risk": collapse_risk,
-            "status": "success"
-        }
-    except Exception as e:
-        return {"error": str(e), "status": "error"}
