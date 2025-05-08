@@ -7,7 +7,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ewcl_toolkit.ewcl_static_tool import ewcl_score_protein
 
-app = FastAPI()
+app = FastAPI(
+    title="EWCL API",
+    version="1.0.0",
+    docs_url="/docs",         # Swagger UI
+    redoc_url="/redoc",       # ReDoc UI
+    openapi_url="/openapi.json"
+)
 
 # CORS setup
 app.add_middleware(
