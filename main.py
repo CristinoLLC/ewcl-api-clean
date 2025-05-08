@@ -80,7 +80,11 @@ async def analyze_structure(req: EWCLRequest):
         # Run AI prediction
         collapse_risk = None
         if model:
-            X = np.array([[avg_score, avg_score, min_score, max_score]])
+            # Calculate standard deviation as a feature
+            std_score = float(np.std(scores_list)) if scores_list else 0
+            
+            # Create feature array with all required features
+            X = np.array([[avg_score, std_score, min_score, max_score, len(scores_list)]])
             collapse_risk = float(model.predict(X)[0])
         
         return {
@@ -131,7 +135,11 @@ async def analyze_file(file: UploadFile = File(...)):
         # Run AI prediction
         collapse_risk = None
         if model:
-            X = np.array([[avg_score, avg_score, min_score, max_score]])
+            # Calculate standard deviation as a feature
+            std_score = float(np.std(scores_list)) if scores_list else 0
+            
+            # Create feature array with all required features
+            X = np.array([[avg_score, std_score, min_score, max_score, len(scores_list)]])
             collapse_risk = float(model.predict(X)[0])
 
         return {
@@ -154,7 +162,14 @@ async def analyze_file(file: UploadFile = File(...)):
 async def run_inference(request: Request):
     data = await request.json()
     try:
-        X = np.array([[data["score"], data["avgEntropy"], data["minEntropy"], data["maxEntropy"]]])
+        # Make sure all required features are included
+        X = np.array([[
+            data["score"], 
+            data["stdEntropy"] if "stdEntropy" in data else data["avgEntropy"],  
+            data["minEntropy"], 
+            data["maxEntropy"],
+            data["sequenceLength"] if "sequenceLength" in data else 0
+        ]])
         prediction = model.predict(X)[0]
         return {"collapseRisk": float(prediction)}
     except Exception as e:
