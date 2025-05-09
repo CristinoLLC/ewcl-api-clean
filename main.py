@@ -41,3 +41,47 @@ class EWCLRequest(BaseModel):
     entropyMethod: str = "shannon"
     weightingFactor: float = 1.0
     temperature: float = 298.0
+
+# First, add this response model
+class EWCLResponse(BaseModel):
+    scores: dict
+    summary: dict
+    status: str
+
+# Then add these endpoints
+@app.post("/analyze", response_model=EWCLResponse)
+async def analyze_structure(req: EWCLRequest):
+    try:
+        ewcl_map = ewcl_score_protein(req.structure)
+        scores_list = list(ewcl_map.values())
+        avg_score = float(np.mean(scores_list)) if scores_list else 0
+        min_score = min(scores_list) if scores_list else 0
+        max_score = max(scores_list) if scores_list else 0
+
+        return {
+            "scores": ewcl_map,
+            "summary": {
+                "method": req.entropyMethod,
+                "mean_score": avg_score,
+                "min_score": min_score,
+                "max_score": max_score,
+                "weightingFactor": req.weightingFactor,
+                "temperature": req.temperature
+            },
+            "status": "success"
+        }
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "scores": {},
+                "summary": {},
+                "status": "error",
+                "error": str(e)
+            }
+        )
+
+@app.get("/health")
+def health():
+    return {"ok": True}
