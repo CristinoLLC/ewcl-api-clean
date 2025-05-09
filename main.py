@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ewcl_toolkit.ewcl_static_tool import ewcl_score_protein
 
+
 app = FastAPI(
     title="EWCL API",
     version="1.0.0",
@@ -16,11 +17,16 @@ app = FastAPI(
 )
 
 # Updated CORS setup with specific origins
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "https://v0-next-webapp-with-mol.vercel.app"
+        "https://v0-next-webapp-with-mol.vercel.app",
+        "https://ewcl-platform.onrender.com",
+        "https://ewclbio.com",
+        "https://ewclx.com",             # ✅ newly added
+        "https://www.ewclx.com"          # ✅ newly added
     ],
     allow_credentials=True,
     allow_methods=["*"],
