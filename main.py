@@ -15,10 +15,14 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# CORS setup
+# Updated CORS setup with specific origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",  # Local development frontend
+        "https://your-v0-front.vercel.app",  # Replace with your actual frontend URL
+        "https://v0-ewcl-platform.vercel.app"  # Your production frontend
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
