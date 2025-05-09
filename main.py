@@ -85,3 +85,7 @@ async def analyze_structure(req: EWCLRequest):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+@app.get("/")
+def root():
+    return {"status": "online", "message": "EWCL API running"}
