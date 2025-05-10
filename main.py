@@ -55,6 +55,18 @@ except Exception as e:
     print(f"❌ Model load failed: {e}")
 
 # ✅ Health routes
+@app.options("/health")
+async def health_options():
+    return JSONResponse(
+        status_code=200,
+        content=None,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+    )
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -64,6 +76,18 @@ def health_head():
     return JSONResponse(status_code=200, content=None)
 
 # ✅ EWCL analysis endpoint
+@app.options("/analyze")
+async def analyze_options():
+    return JSONResponse(
+        status_code=200,
+        content=None,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+    )
+
 @app.post("/analyze", response_model=EWCLResponse)
 async def analyze_structure(req: EWCLRequest):
     try:
@@ -100,6 +124,18 @@ async def analyze_structure(req: EWCLRequest):
         )
 
 # ✅ File upload version
+@app.options("/analyze-file")
+async def analyze_file_options():
+    return JSONResponse(
+        status_code=200,
+        content=None,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+    )
+
 @app.post("/analyze-file")
 async def analyze_file(file: UploadFile = File(...)):
     try:
