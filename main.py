@@ -21,7 +21,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "https://v0-ewcl-platform.vercel.app",
+        "https://v0-next-webapp-with-mol-git-main-lucas-cristino.vercel.app/",
         "https://www.ewclx.com",
         "https://ewclx.com"
     ],
@@ -74,6 +74,10 @@ def health():
 @app.head("/health")
 def health_head():
     return JSONResponse(status_code=200, content=None)
+
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "EWCL API is online"}
 
 # ✅ EWCL analysis endpoint
 @app.options("/analyze")
