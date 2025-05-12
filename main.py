@@ -22,7 +22,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",  # Frontend running locally on port 5173
         "http://localhost:3000",  # Frontend running locally on port 3000
-        "https://v0-next-webapp-with-mol-git-main-lucas-cristino.vercel.app/",  # Existing frontend
+        "https://v0-next-webapp-with-mol-git-main-lucas-cristino.vercel.app",  # Existing frontend (removed trailing slash)
         "https://www.ewclx.com",  # Production domain
         "https://ewclx.com"       # Alternate production domain
     ],
@@ -32,12 +32,4 @@ app.add_middleware(
 )
 
 # ✅ Request/Response models
-class EWCLRequest(BaseModel):
-    pass  # You can define fields like sequence: str or structure: dict here later
-
-# Other routes and logic...
-
-# ✅ Health check route
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+class EWCLRequest
