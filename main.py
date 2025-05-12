@@ -32,4 +32,5 @@ app.add_middleware(
 )
 
 # ✅ Request/Response models
-class EWCLRequest
+class EWCLRequest(BaseModel):
+    pass  # You can define fields like sequence: str or structure: dict here later
