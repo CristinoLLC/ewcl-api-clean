@@ -34,3 +34,10 @@ app.add_middleware(
 # ✅ Request/Response models
 class EWCLRequest(BaseModel):
     pass  # You can define fields like sequence: str or structure: dict here later
+
+# Other routes and logic...
+
+# ✅ Health check route
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
