@@ -32,4 +32,5 @@ app.add_middleware(
 )
 
 # ✅ Request/Response models
-class EWCLRequest
+class EWCLRequest(BaseModel):
+    filename: str
