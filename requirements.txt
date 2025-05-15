@@ -5,3 +5,6 @@ uvicorn
 python-multipart
 pandas
 joblib
+requests
+biopython==1.85
+python-3.10.12
