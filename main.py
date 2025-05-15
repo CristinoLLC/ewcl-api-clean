@@ -1,13 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, Optional
+from typing import Optional
 import os
-
-# Optional: from ewcl_core import compute_ewcl_scores
 
 app = FastAPI()
 
+# Allow local + prod frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -35,9 +34,13 @@ async def analyze(file: UploadFile = File(...)):
         contents = await file.read()
         pdb_text = contents.decode("utf-8")
 
-        # Replace with: scores = compute_ewcl_scores(pdb_text)
-        scores = {i: round(1.0 / (i + 1) + 0.005 * (i % 7), 4) for i in range(1, 10001)}  # Simulate 10k
+        # Placeholder entropy score generator (simulate EWCL)
+        scores = {
+            i: round(1.0 / (i + 1) + 0.005 * (i % 7), 4)
+            for i in range(1, 20001)  # Simulate 20k residues
+        }
 
+        # Sort scores: high entropy = most unstable
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         top_5000 = dict(sorted_scores[:5000])
 
@@ -48,8 +51,8 @@ async def analyze(file: UploadFile = File(...)):
             "source": ext,
             "collapse_likelihood": collapse_likelihood,
             "most_unstable_residue": most_unstable_residue,
-            "filtered_scores": top_5000,
-            "residue_scores": scores
+            "filtered_scores": top_5000,         # ✅ 5k most unstable
+            "residue_scores": scores             # ✅ full for download or toggle
         }
 
     except Exception as e:
