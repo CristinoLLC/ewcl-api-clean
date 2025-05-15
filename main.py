@@ -1,12 +1,27 @@
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Optional, Dict, Tuple
+from Bio.PDB import PDBParser
+from Bio.SeqUtils import seq1
+from io import StringIO
 import os
 
-app = FastAPI()
+from ewcl_core import (
+    compute_ewcl_scores_from_pdb,
+    compute_ewcl_scores_from_alphafold_json,
+    compute_ewcl_scores_from_sequence
+)
 
-# Allow local + prod frontend
+app = FastAPI(
+    title="EWCL API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
+
+# CORS config for dev + prod
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -20,40 +35,86 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def root():
+    return {"status": "online", "message": "EWCL API running"}
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in [".pdb", ".cif"]:
-        return JSONResponse(status_code=400, content={"error": "Only .pdb or .cif files are supported"})
+    contents = await file.read()
+    filename = file.filename.lower()
 
     try:
-        contents = await file.read()
-        pdb_text = contents.decode("utf-8")
+        if filename.endswith(".pdb") or filename.endswith(".cif"):
+            pdb_text = contents.decode("utf-8")
+            scores = compute_ewcl_scores_from_pdb(pdb_text)
+            source_type = "pdb"
 
-        # Placeholder entropy score generator (simulate EWCL)
-        scores = {
-            i: round(1.0 / (i + 1) + 0.005 * (i % 7), 4)
-            for i in range(1, 20001)  # Simulate 20k residues
-        }
+        elif filename.endswith(".json"):
+            scores = compute_ewcl_scores_from_alphafold_json(contents)
+            source_type = "alphafold"
 
-        # Sort scores: high entropy = most unstable
+        elif filename.endswith(".fasta") or filename.endswith(".fa"):
+            fasta = contents.decode("utf-8")
+            scores = compute_ewcl_scores_from_sequence(fasta)
+            source_type = "sequence"
+
+        else:
+            return JSONResponse(
+                status_code=400, 
+                content={"error": "Supported files: .pdb, .cif, .json (AlphaFold), .fa/.fasta"}
+            )
+
+        # Sort and extract top 5k unstable residues
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        top_5000 = dict(sorted_scores[:5000])
-
-        collapse_likelihood = round(sum(scores.values()) / len(scores), 4)
-        most_unstable_residue = max(scores, key=scores.get)
+        top_5000 = dict(sorted_scores[:min(5000, len(sorted_scores))])
+        
+        if scores:
+            collapse_likelihood = round(sum(scores.values()) / len(scores), 4)
+            most_unstable_residue = max(scores, key=scores.get)
+        else:
+            collapse_likelihood = 0
+            most_unstable_residue = None
 
         return {
-            "source": ext,
+            "source": source_type,
             "collapse_likelihood": collapse_likelihood,
             "most_unstable_residue": most_unstable_residue,
-            "filtered_scores": top_5000,         # ✅ 5k most unstable
-            "residue_scores": scores             # ✅ full for download or toggle
+            "filtered_scores": top_5000,
+            "residue_scores": scores,
+            "entropy_sources_used": {
+                "b_factor": source_type == "pdb",
+                "disorder": source_type == "sequence",
+                "plddt": source_type == "alphafold"
+            }
         }
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+def extract_sequence_from_pdb(pdb_text: str) -> Tuple[str, Dict[int, str]]:
+    """Extract amino acid sequence from PDB file"""
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure("protein", StringIO(pdb_text))
+    
+    sequence = ""
+    residue_mapping = {}
+    
+    for model in structure:
+        for chain in model:
+            for residue in chain:
+                if residue.get_id()[0] == " ":  # Standard amino acid
+                    try:
+                        aa = seq1(residue.get_resname())
+                        sequence += aa
+                        residue_mapping[residue.get_id()[1]] = aa
+                    except:
+                        continue
+            break  # Only process first chain
+        break  # Only process first model
+            
+    return sequence, residue_mapping
