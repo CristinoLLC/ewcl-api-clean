@@ -28,6 +28,12 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:7173",
         "https://ewclx.com",
+        "https://www.ewclx.com",
+        "https://v0-next-webapp-with-mol-git-main-lucas-cristino.vercel.app",
+        "https://v0-next-webapp-with-4f0p158df-lucas-cristino.vercel.app",
+        "https://next-webapp-with-mol-pvqM9XLgrJc.v0.dev",
+        # Newly added origins:
+        "https://v0-next-webapp-with-mol-git-main-lucas-cristino.vercel.app",
         "https://www.ewclx.com"
     ],
     allow_credentials=True,
