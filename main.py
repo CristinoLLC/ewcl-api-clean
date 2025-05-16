@@ -6,6 +6,7 @@ from Bio.PDB import PDBParser
 from Bio.SeqUtils import seq1
 from io import StringIO
 import os
+import re
 
 from ewcl_core import (
     compute_ewcl_scores_from_pdb,
@@ -21,25 +22,40 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# CORS config for dev + prod
+# Define a custom function to allow regex origins
+def regex_origin(origin: str) -> bool:
+    allowed_patterns = [
+        r"https://www\.ewclx\.com$",                  # Custom domain
+        r"https://.*\.vercel\.app$",                  # All Vercel deployments
+        r"https://.*\.vercel-insights\.com$",         # Vercel Insights
+        r"https://.*\.vercel-scripts\.com$",          # Vercel Scripts
+        r"https://.*\.v0\.dev$",                      # V0 frontends
+        r"http://localhost:3000$",                    # Local dev
+        r"http://localhost:7173$",                    # Existing local dev
+        r"https://ewclx\.com$",                       # Existing domain
+        r"https://next-webapp-with-mol-pvqM9XLgrJc\.v0\.dev$",  # Existing specific domain
+    ]
+    return any(re.match(pattern, origin) for pattern in allowed_patterns)
+
+# Update your middleware to use the custom regex function
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:7173",
-        "https://ewclx.com",
-        "https://www.ewclx.com",
-        "https://v0-next-webapp-with-mol-git-main-lucas-cristino.vercel.app",
-        "https://v0-next-webapp-with-4f0p158df-lucas-cristino.vercel.app",
-        "https://next-webapp-with-mol-pvqM9XLgrJc.v0.dev",
-        # Newly added origins:
-        "https://v0-next-webapp-with-mol-git-main-lucas-cristino.vercel.app",
-        "https://www.ewclx.com"
-    ],
+    allow_origin_regex=".*",  # Allow all origins initially, we'll filter manually
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+# Custom middleware to enforce regex-based origin checking
+@app.middleware("http")
+async def custom_cors_middleware(request, call_next):
+    origin = request.headers.get("origin")
+    response = await call_next(request)
+    if origin and regex_origin(origin):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
+    return response
 
 @app.get("/")
 def root():
