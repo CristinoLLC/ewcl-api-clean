@@ -1,0 +1,27 @@
+# Bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+.env/
+
+# Model and binary files
+*.pkl
+*.h5
+*.onnx
+
+# Node modules and other extensions
+node_modules/
+.vscode/
+.cursor/
+.windsurf/
+
+# MacOS and system files
+.DS_Store
+.Trash/
+*.log
+
+# Git-related submodules you don't want
+.nvm/
