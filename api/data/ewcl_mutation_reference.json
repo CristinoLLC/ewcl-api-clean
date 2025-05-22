@@ -1,0 +1,30 @@
+{
+  "1AO6": {
+    "121": {
+      "mutation": "R121C",
+      "source": "ClinVar",
+      "label": "Pathogenic"
+    }
+  },
+  "1CD3": {
+    "45": {
+      "mutation": "G45D",
+      "source": "UniProt",
+      "label": "Likely pathogenic"
+    }
+  },
+  "6VXX": {
+    "614": {
+      "mutation": "D614G",
+      "source": "ClinVar",
+      "label": "Documented variant"
+    }
+  },
+  "3ABC": {
+    "10": {
+      "mutation": "V10I",
+      "source": "COSMIC",
+      "label": "Cancer hotspot"
+    }
+  }
+}
