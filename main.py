@@ -1,18 +1,31 @@
+import pandas as pd
+from sklearn.metrics import roc_auc_score, precision_score, recall_score
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, Dict, Tuple
-from Bio.PDB import PDBParser
-from Bio.SeqUtils import seq1
-from io import StringIO
+from typing import Optional
 import os
-import re
-
+import numpy as np
+from joblib import load
+from predict import predict_hallucination
 from ewcl_core import (
     compute_ewcl_scores_from_pdb,
     compute_ewcl_scores_from_alphafold_json,
     compute_ewcl_scores_from_sequence
 )
+
+from pydantic import BaseModel
+
+
+# Pydantic model for hallucination prediction endpoint
+class CollapseFeatures(BaseModel):
+    mean_ewcl: float
+    std_ewcl: float
+    collapse_likelihood: float
+    mean_plddt: float
+    std_plddt: float
+    mean_bfactor: float
+    std_bfactor: float
 
 app = FastAPI(
     title="EWCL API",
@@ -22,38 +35,24 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# Define a custom function to allow regex origins
-def regex_origin(origin: str) -> bool:
-    allowed_patterns = [
-        r"https://www\.ewclx\.com$",                  # Custom domain
-        r"https://.*\.vercel\.app$",                  # All Vercel deployments
-        r"https://.*\.vercel-insights\.com$",         # Vercel Insights
-        r"https://.*\.vercel-scripts\.com$",          # Vercel Scripts
-        r"https://.*\.v0\.dev$",                      # V0 frontends
-        r"http://localhost:3000$",                    # Local dev
-        r"http://localhost:7173$",                    # Existing local dev
-        r"https://ewclx\.com$",                       # Existing domain
-        r"https://next-webapp-with-mol-pvqM9XLgrJc\.v0\.dev$",  # Existing specific domain
-    ]
-    return any(re.match(pattern, origin) for pattern in allowed_patterns)
+@app.on_event("startup")
+async def debug_routes():
+    print("Available routes:")
+    for route in app.routes:
+        print(route.path)
 
-# Update your middleware to use the custom regex function
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=".*",  # Allow all origins initially, we'll filter manually
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization"],
-)
+from fastapi import Request
 
-# Custom middleware to enforce regex-based origin checking
+# Custom CORS middleware using regex_origin
 @app.middleware("http")
-async def custom_cors_middleware(request, call_next):
+async def custom_cors_middleware(request: Request, call_next):
     origin = request.headers.get("origin")
     response = await call_next(request)
     if origin and regex_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
         response.headers["Vary"] = "Origin"
     return response
 
@@ -71,72 +70,109 @@ async def analyze(file: UploadFile = File(...)):
     filename = file.filename.lower()
 
     try:
-        if filename.endswith(".pdb") or filename.endswith(".cif"):
+        if filename.endswith(".pdb"):
             pdb_text = contents.decode("utf-8")
             scores = compute_ewcl_scores_from_pdb(pdb_text)
-            source_type = "pdb"
-
         elif filename.endswith(".json"):
             scores = compute_ewcl_scores_from_alphafold_json(contents)
-            source_type = "alphafold"
-
         elif filename.endswith(".fasta") or filename.endswith(".fa"):
             fasta = contents.decode("utf-8")
             scores = compute_ewcl_scores_from_sequence(fasta)
-            source_type = "sequence"
-
         else:
             return JSONResponse(
-                status_code=400, 
-                content={"error": "Supported files: .pdb, .cif, .json (AlphaFold), .fa/.fasta"}
+                status_code=400,
+                content={"error": "Unsupported file format"}
             )
 
-        # Sort and extract top 5k unstable residues
-        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        top_5000 = dict(sorted_scores[:min(5000, len(sorted_scores))])
-        
-        if scores:
-            collapse_likelihood = round(sum(scores.values()) / len(scores), 4)
-            most_unstable_residue = max(scores, key=scores.get)
-        else:
-            collapse_likelihood = 0
-            most_unstable_residue = None
+        mean_ewcl = round(np.mean(list(scores.values())), 4)
+        std_ewcl = round(np.std(list(scores.values())), 4)
+        max_ewcl = round(np.max(list(scores.values())), 4)
+
+        ai_label = predict_hallucination({
+            "mean_ewcl": mean_ewcl,
+            "std_ewcl": std_ewcl,
+            "collapse_likelihood": mean_ewcl,
+            "mean_plddt": 0.0,
+            "std_plddt": 0.0,
+            "mean_bfactor": 0.0,
+            "std_bfactor": 0.0
+        })
 
         return {
-            "source": source_type,
-            "collapse_likelihood": collapse_likelihood,
-            "most_unstable_residue": most_unstable_residue,
-            "filtered_scores": top_5000,
-            "residue_scores": scores,
-            "entropy_sources_used": {
-                "b_factor": source_type == "pdb",
-                "disorder": source_type == "sequence",
-                "plddt": source_type == "alphafold"
-            }
+            "scores": scores,
+            "ai_label": ai_label,
+            "mean_ewcl": mean_ewcl,
+            "std_ewcl": std_ewcl,
+            "max_ewcl": max_ewcl
         }
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-def extract_sequence_from_pdb(pdb_text: str) -> Tuple[str, Dict[int, str]]:
-    """Extract amino acid sequence from PDB file"""
-    parser = PDBParser(QUIET=True)
-    structure = parser.get_structure("protein", StringIO(pdb_text))
-    
-    sequence = ""
-    residue_mapping = {}
-    
-    for model in structure:
-        for chain in model:
-            for residue in chain:
-                if residue.get_id()[0] == " ":  # Standard amino acid
-                    try:
-                        aa = seq1(residue.get_resname())
-                        sequence += aa
-                        residue_mapping[residue.get_id()[1]] = aa
-                    except:
-                        continue
-            break  # Only process first chain
-        break  # Only process first model
-            
-    return sequence, residue_mapping
+
+# Utility function for regex-based CORS origin checking (not used by default)
+import re
+def regex_origin(origin: str) -> bool:
+    allowed_patterns = [
+        r"https://ewclx\.com$",
+        r"https://www\.ewclx\.com$",
+        r"https://.*\.vercel\.app$",
+        r"https://.*\.v0\.dev$",
+        r"http://localhost:3000$",
+        r"http://127\.0\.0\.1:3000$"
+    ]
+    return any(re.match(pattern, origin) for pattern in allowed_patterns)
+
+try:
+    refold_model = load("models/refolding_classifier_model.pkl")
+    print("✅ Refolding model loaded successfully.")
+except Exception as e:
+    print(f"❌ Error loading refolding model: {e}")
+    refold_model = None
+
+# New endpoint for hallucination prediction
+@app.post("/predict-hallucination")
+def predict(data: CollapseFeatures):
+    result = predict_hallucination(data.dict())
+    return {"hallucination_risk": result}
+
+@app.post("/predict-refolding")
+def predict_refolding(data: CollapseFeatures):
+    print("✅ /predict-refolding endpoint hit")
+    if refold_model is None:
+        return JSONResponse(status_code=500, content={"error": "Refolding model not loaded"})
+    X = np.array([[data.mean_ewcl, data.std_ewcl, data.collapse_likelihood, data.mean_plddt, data.std_plddt, data.mean_bfactor, data.std_bfactor]])
+    result = refold_model.predict(X)[0]
+    return {"refolding_risk": result}
+
+
+# New endpoint: validate EWCL vs DisProt
+import json
+from fastapi import UploadFile, File
+
+@app.post("/validate-ewcl-vs-disprot")
+async def validate_ewcl_vs_disprot(ewcl: UploadFile = File(...), disprot: UploadFile = File(...)):
+    ewcl_data = json.loads((await ewcl.read()).decode())
+    disprot_data = json.loads((await disprot.read()).decode())
+
+    # Align keys
+    common_keys = set(ewcl_data.keys()).intersection(disprot_data.keys())
+    if not common_keys:
+        return JSONResponse(status_code=400, content={"error": "No overlapping residues found"})
+
+    y_scores = [ewcl_data[k] for k in common_keys]
+    y_labels = [disprot_data[k] for k in common_keys]
+
+    try:
+        auc = roc_auc_score(y_labels, y_scores)
+        precision = precision_score(y_labels, [int(s > 0.5) for s in y_scores])
+        recall = recall_score(y_labels, [int(s > 0.5) for s in y_scores])
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    return {
+        "common_residues": len(common_keys),
+        "auc": round(auc, 4),
+        "precision": round(precision, 4),
+        "recall": round(recall, 4)
+    }
