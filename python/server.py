@@ -11,7 +11,7 @@ def health():
     return {"status": "ok"}
 
 # Load your local model
-model = joblib.load("ewcl_model_final.pkl")
+model = joblib.load("models/ewcl_model_final.pkl")
 
 # Define schema for prediction input
 class InputData(BaseModel):

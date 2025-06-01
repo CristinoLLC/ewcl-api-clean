@@ -13,6 +13,16 @@ from ewcl_core import (
     compute_ewcl_scores_from_alphafold_json,
     compute_ewcl_scores_from_sequence
 )
+import json
+from pathlib import Path
+
+# Load mutation reference once
+MUTATION_REF_PATH = Path("api/data/ewcl_mutation_reference.json")
+if MUTATION_REF_PATH.exists():
+    with open(MUTATION_REF_PATH) as f:
+        mutation_reference = json.load(f)
+else:
+    mutation_reference = {}
 
 from pydantic import BaseModel
 
@@ -98,8 +108,22 @@ async def analyze(file: UploadFile = File(...)):
             "std_bfactor": 0.0
         })
 
+        pdb_id = filename.split('.')[0].upper()
+        mutation_map = mutation_reference.get(pdb_id, {})
+
+        annotated_scores = []
+        for res_id, score in scores.items():
+            res_id_int = int(res_id)
+            mutation_info = mutation_map.get(str(res_id_int)) or mutation_map.get(res_id_int)
+            annotated_scores.append({
+                "residue_id": res_id_int,
+                "ewcl_score": score,
+                "mutation": bool(mutation_info),
+                "mutation_info": mutation_info if mutation_info else None
+            })
+
         return {
-            "scores": scores,
+            "scores": annotated_scores,
             "ai_label": ai_label,
             "mean_ewcl": mean_ewcl,
             "std_ewcl": std_ewcl,
