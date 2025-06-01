@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import os
 import numpy as np
-from joblib import load
 from predict import predict_hallucination
 from ewcl_core import (
     compute_ewcl_scores_from_pdb,
@@ -74,24 +73,34 @@ def root():
 def health_check():
     return {"status": "ok"}
 
-@app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
-    contents = await file.read()
-    filename = file.filename.lower()
+from fastapi import Body
 
+@app.post("/analyze")
+async def analyze(file: Optional[UploadFile] = File(None), sequence: Optional[str] = Body(None)):
     try:
-        if filename.endswith(".pdb"):
-            pdb_text = contents.decode("utf-8")
-            scores = compute_ewcl_scores_from_pdb(pdb_text)
-        elif filename.endswith(".json"):
-            scores = compute_ewcl_scores_from_alphafold_json(contents)
-        elif filename.endswith(".fasta") or filename.endswith(".fa"):
-            fasta = contents.decode("utf-8")
-            scores = compute_ewcl_scores_from_sequence(fasta)
+        if file:
+            contents = await file.read()
+            filename = file.filename.lower()
+
+            if filename.endswith(".pdb"):
+                pdb_text = contents.decode("utf-8")
+                scores = compute_ewcl_scores_from_pdb(pdb_text)
+            elif filename.endswith(".json"):
+                scores = compute_ewcl_scores_from_alphafold_json(contents)
+            elif filename.endswith(".fasta") or filename.endswith(".fa"):
+                fasta = contents.decode("utf-8")
+                scores = compute_ewcl_scores_from_sequence(fasta)
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Unsupported file format"}
+                )
+        elif sequence:
+            scores = compute_ewcl_scores_from_sequence(sequence)
         else:
             return JSONResponse(
                 status_code=400,
-                content={"error": "Unsupported file format"}
+                content={"error": "No input provided"}
             )
 
         mean_ewcl = round(np.mean(list(scores.values())), 4)
@@ -108,7 +117,10 @@ async def analyze(file: UploadFile = File(...)):
             "std_bfactor": 0.0
         })
 
-        pdb_id = filename.split('.')[0].upper()
+        pdb_id = "INPUT"
+        if file:
+            pdb_id = file.filename.split('.')[0].upper()
+
         mutation_map = mutation_reference.get(pdb_id, {})
 
         annotated_scores = []
@@ -147,27 +159,29 @@ def regex_origin(origin: str) -> bool:
     ]
     return any(re.match(pattern, origin) for pattern in allowed_patterns)
 
-try:
-    refold_model = load("models/refolding_classifier_model.pkl")
-    print("✅ Refolding model loaded successfully.")
-except Exception as e:
-    print(f"❌ Error loading refolding model: {e}")
-    refold_model = None
+# Refolding model temporarily disabled
+refold_model = None
+
+# Commented out model loading code as models are now handled in predict.py
+# try:
+#     refold_model = load("models/refolding_classifier_model.pkl")
+#     print("✅ Refolding model loaded successfully.")
+# except Exception as e:
+#     print(f"❌ Error loading refolding model: {e}")
+#     refold_model = None
+
+# from joblib import load
+# halluc_model = load("models/hallucination_safe_model_v5000.pkl")  # Or similar
 
 # New endpoint for hallucination prediction
 @app.post("/predict-hallucination")
 def predict(data: CollapseFeatures):
-    result = predict_hallucination(data.dict())
-    return {"hallucination_risk": result}
+    return {"message": "Hallucination prediction temporarily disabled"}
+
 
 @app.post("/predict-refolding")
 def predict_refolding(data: CollapseFeatures):
-    print("✅ /predict-refolding endpoint hit")
-    if refold_model is None:
-        return JSONResponse(status_code=500, content={"error": "Refolding model not loaded"})
-    X = np.array([[data.mean_ewcl, data.std_ewcl, data.collapse_likelihood, data.mean_plddt, data.std_plddt, data.mean_bfactor, data.std_bfactor]])
-    result = refold_model.predict(X)[0]
-    return {"refolding_risk": result}
+    return {"message": "Refolding prediction temporarily disabled"}
 
 
 # New endpoint: validate EWCL vs DisProt
