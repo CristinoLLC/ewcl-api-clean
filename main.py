@@ -5,7 +5,7 @@ from sklearn.metrics import (
     recall_score, 
     f1_score
 )
-from fastapi import FastAPI, UploadFile, File, Request, HTTPException
+from fastapi import FastAPI, UploadFile, File, Request, HTTPException, Body
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, Dict
@@ -48,6 +48,19 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
+)
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://ewclx.com",
+        "https://www.ewclx.com"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.on_event("startup")
@@ -129,7 +142,10 @@ def try_run_disprot_validation(protein_id: str, ewcl_scores: Dict[int, float]):
     return validation_result
 
 @app.post("/analyze")
-async def analyze(data: Optional[SequenceInput] = None, file: Optional[UploadFile] = File(None)):
+async def analyze(
+    file: Optional[UploadFile] = File(None),
+    data: Optional[SequenceInput] = Body(None)
+):
     try:
         plddt_scores = {}
         bfactors = {}
