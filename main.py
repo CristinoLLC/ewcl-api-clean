@@ -147,10 +147,17 @@ def try_run_disprot_validation(protein_id: str, ewcl_scores: Dict[int, float]):
 
 @app.post("/analyze")
 async def analyze(
-    data: Optional[SequenceInput] = Body(None),
+    request: Request,
     file: Optional[UploadFile] = File(None)
 ):
-    print("DEBUG DATA:", data)
+    sequence = None
+    try:
+        if request.headers.get("content-type", "").startswith("application/json"):
+            data = await request.json()
+            sequence = data.get("sequence", None)
+    except Exception as e:
+        print("❌ JSON parse error:", e)
+    print("DEBUG DATA (sequence):", sequence)
     try:
         plddt_scores = {}
         bfactors = {}
@@ -174,10 +181,10 @@ async def analyze(
                     status_code=400,
                     content={"error": "Unsupported file format"}
                 )
-        elif data and data.sequence:
-            print("🧪 Received sequence input with length:", len(data.sequence))
+        elif sequence:
+            print("🧪 Received sequence input with length:", len(sequence))
             print("✅ Using sequence-based computation")
-            scores = compute_ewcl_scores_from_sequence(data.sequence)
+            scores = compute_ewcl_scores_from_sequence(sequence)
         else:
             return JSONResponse(
                 status_code=400,
