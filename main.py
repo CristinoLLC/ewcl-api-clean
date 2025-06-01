@@ -143,8 +143,8 @@ def try_run_disprot_validation(protein_id: str, ewcl_scores: Dict[int, float]):
 
 @app.post("/analyze")
 async def analyze(
-    file: Optional[UploadFile] = File(None),
-    data: Optional[SequenceInput] = Body(None)
+    data: Optional[SequenceInput] = Body(None),
+    file: Optional[UploadFile] = File(None)
 ):
     try:
         plddt_scores = {}
