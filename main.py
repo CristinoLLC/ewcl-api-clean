@@ -25,6 +25,9 @@ else:
 
 from pydantic import BaseModel
 
+class SequenceInput(BaseModel):
+    sequence: str
+
 
 # Pydantic model for hallucination prediction endpoint
 class CollapseFeatures(BaseModel):
@@ -50,20 +53,22 @@ async def debug_routes():
     for route in app.routes:
         print(route.path)
 
-from fastapi import Request
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://*.vercel.app",
+    "https://*.v0.dev",
+    "https://ewclx.com",
+    "https://www.ewclx.com"
+]
 
-# Custom CORS middleware using regex_origin
-@app.middleware("http")
-async def custom_cors_middleware(request: Request, call_next):
-    origin = request.headers.get("origin")
-    response = await call_next(request)
-    if origin and regex_origin(origin):
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-        response.headers["Vary"] = "Origin"
-    return response
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def root():
@@ -76,7 +81,7 @@ def health_check():
 from fastapi import Body
 
 @app.post("/analyze")
-async def analyze(file: Optional[UploadFile] = File(None), sequence: Optional[str] = Body(None)):
+async def analyze(data: Optional[SequenceInput] = None, file: Optional[UploadFile] = File(None)):
     try:
         if file:
             contents = await file.read()
@@ -95,8 +100,8 @@ async def analyze(file: Optional[UploadFile] = File(None), sequence: Optional[st
                     status_code=400,
                     content={"error": "Unsupported file format"}
                 )
-        elif sequence:
-            scores = compute_ewcl_scores_from_sequence(sequence)
+        elif data and data.sequence:
+            scores = compute_ewcl_scores_from_sequence(data.sequence)
         else:
             return JSONResponse(
                 status_code=400,
