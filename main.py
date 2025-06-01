@@ -69,6 +69,10 @@ async def debug_routes():
     for route in app.routes:
         print(route.path)
 
+@app.get("/")
+def root():
+    return {"status": "online", "message": "EWCL API running"}
+
 def extract_plddt_scores(json_data: bytes) -> Dict[str, float]:
     """Extract pLDDT scores from AlphaFold JSON output"""
     try:
@@ -146,6 +150,7 @@ async def analyze(
     data: Optional[SequenceInput] = Body(None),
     file: Optional[UploadFile] = File(None)
 ):
+    print("DEBUG DATA:", data)
     try:
         plddt_scores = {}
         bfactors = {}
@@ -170,6 +175,8 @@ async def analyze(
                     content={"error": "Unsupported file format"}
                 )
         elif data and data.sequence:
+            print("🧪 Received sequence input with length:", len(data.sequence))
+            print("✅ Using sequence-based computation")
             scores = compute_ewcl_scores_from_sequence(data.sequence)
         else:
             return JSONResponse(
