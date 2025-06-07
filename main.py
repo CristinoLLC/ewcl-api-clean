@@ -161,6 +161,8 @@ async def analyze(
     try:
         plddt_scores = {}
         bfactors = {}
+        source_type = "unknown"
+        has_structure = False
         
         if file:
             contents = await file.read()
@@ -170,12 +172,21 @@ async def analyze(
                 pdb_text = contents.decode("utf-8")
                 scores = compute_ewcl_scores_from_pdb(pdb_text)
                 bfactors = extract_bfactors(pdb_text)
+                source_type = "pdb"
+                has_structure = True
+                
             elif filename.endswith(".json"):
                 scores = compute_ewcl_scores_from_alphafold_json(contents)
                 plddt_scores = extract_plddt_scores(contents)
+                source_type = "alphafold_json"
+                has_structure = True
+                
             elif filename.endswith(".fasta") or filename.endswith(".fa"):
                 fasta = contents.decode("utf-8")
                 scores = compute_ewcl_scores_from_sequence(fasta)
+                source_type = "fasta"
+                has_structure = False
+                
             else:
                 return JSONResponse(
                     status_code=400,
@@ -185,6 +196,8 @@ async def analyze(
             print("🧪 Received sequence input with length:", len(sequence))
             print("✅ Using sequence-based computation")
             scores = compute_ewcl_scores_from_sequence(sequence)
+            source_type = "sequence"
+            has_structure = False
         else:
             return JSONResponse(
                 status_code=400,
@@ -283,7 +296,9 @@ async def analyze(
                     "std": std_ewcl,
                     "max": max_ewcl
                 }
-            }
+            },
+            "has_structure": has_structure,
+            "source_type": source_type
         }
 
         if correlation_summary:
