@@ -289,10 +289,19 @@ async def analyze(
         if correlation_summary:
             response["correlation_summary"] = correlation_summary
 
+        # Add DisProt mode classification
+        disprot_mode = "none"
+        
         # Add DisProt validation if available
         validation_result = try_run_disprot_validation(pdb_id, {s["residue_id"]: s["ewcl_score"] for s in annotated_scores})
         if validation_result:
+            disprot_mode = "validated"
             response["validation"] = validation_result
+        # Check for likely IDP based on entropy curve - adjusted thresholds for better sensitivity
+        elif np.mean(ewcl_values) > 0.8 and np.std(ewcl_values) < 0.1 and max_ewcl > 0.95:
+            disprot_mode = "likely_idp"
+            
+        response["disprot_mode"] = disprot_mode
 
         return response
 
