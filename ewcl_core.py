@@ -9,6 +9,7 @@ import subprocess
 import os
 import tempfile
 import re
+import scipy.stats
 
 def extract_sequence_from_pdb(pdb_text: str) -> Tuple[str, Dict[int, str]]:
     """Extract amino acid sequence from PDB file"""
@@ -257,21 +258,40 @@ def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None) -> Di
 def compute_ewcl_scores_from_pdb(pdb_text: str) -> Dict[int, float]:
     parser = PDBParser(QUIET=True)
     structure = parser.get_structure("protein", StringIO(pdb_text))
-    scores = {}
+    res_b = {}
+
     for model in structure:
         for chain in model:
             for residue in chain:
+                res_id = residue.get_id()[1]
                 b_factors = [atom.get_bfactor() for atom in residue if atom.get_bfactor() < 100.0]
-                if not b_factors:
-                    continue
-                avg_b = np.mean(b_factors)
-                scores[residue.get_id()[1]] = round(min(avg_b / 100.0, 1.0), 4)
+                if b_factors:
+                    res_b[res_id] = np.mean(b_factors)
+
+    # Compute entropy over 7-residue windows
+    residue_ids = sorted(res_b.keys())
+    scores = {}
+
+    for i, res_id in enumerate(residue_ids):
+        window = [res_b[r] for r in residue_ids[max(0, i-3):min(len(residue_ids), i+4)]]
+        entropy = scipy.stats.entropy(window) if window else 0
+        scores[res_id] = round(entropy, 4)
+
     return scores
 
 def compute_ewcl_scores_from_alphafold_json(json_bytes: bytes) -> Dict[int, float]:
     data = json.loads(json_bytes)
     plddt = data.get("plddt", [])
-    scores = {i + 1: round(1.0 - (val / 100), 4) for i, val in enumerate(plddt)}
+    window_size = 7
+    scores = {}
+
+    for i in range(len(plddt)):
+        start = max(0, i - window_size // 2)
+        end = min(len(plddt), i + window_size // 2 + 1)
+        window = plddt[start:end]
+        entropy = scipy.stats.entropy(window) if window else 0
+        scores[i + 1] = round(entropy, 4)
+
     return scores
 
 def compute_ewcl_scores_from_sequence(fasta_text: str) -> Dict[int, float]:
