@@ -50,10 +50,17 @@ def compute_bfactor_scores(pdb_text: str) -> Dict[int, float]:
                 avg_b = np.mean(b_factors)
                 
                 # Normalize and convert to entropy-like score (scale 0–1)
-                norm_score = round(min(avg_b / 100.0, 1.0), 4)
+                norm_score = round(avg_b, 4)  # raw for now; normalize later
                 
                 # Use res id as global key
                 residue_scores[residue.get_id()[1]] = norm_score
+    
+    if residue_scores:
+        b_values = list(residue_scores.values())
+        min_b = min(b_values)
+        max_b = max(b_values)
+        for res_id in residue_scores:
+            residue_scores[res_id] = round((residue_scores[res_id] - min_b) / (max_b - min_b + 1e-6), 4)
     
     return residue_scores
 
@@ -166,6 +173,13 @@ def combine_entropy_sources(
             score_sum += plddt_scores[res_id] * norm_weights.get("plddt", 0)
             
         combined_scores[res_id] = round(score_sum, 4)
+    
+    if combined_scores:
+        vals = list(combined_scores.values())
+        min_val = min(vals)
+        max_val = max(vals)
+        for res_id in combined_scores:
+            combined_scores[res_id] = round((combined_scores[res_id] - min_val) / (max_val - min_val + 1e-6), 4)
         
     return combined_scores
 
