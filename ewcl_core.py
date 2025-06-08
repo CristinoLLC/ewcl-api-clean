@@ -276,10 +276,11 @@ def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None) -> Di
     
     return combined_scores
 
-def compute_ewcl_scores_from_pdb(pdb_text: str) -> Dict[int, float]:
+def compute_ewcl_scores_from_pdb(pdb_text: str, return_metadata: bool = False) -> Union[Dict[int, float], Tuple[Dict[int, float], Dict]]:
     parser = PDBParser(QUIET=True)
     structure = parser.get_structure("protein", StringIO(pdb_text))
     res_b = {}
+    b_factor_raw = {}
 
     for model in structure:
         for chain in model:
@@ -287,7 +288,9 @@ def compute_ewcl_scores_from_pdb(pdb_text: str) -> Dict[int, float]:
                 res_id = residue.get_id()[1]
                 b_factors = [atom.get_bfactor() for atom in residue if atom.get_bfactor() < 100.0]
                 if b_factors:
-                    res_b[res_id] = np.mean(b_factors)
+                    avg_b = np.mean(b_factors)
+                    res_b[res_id] = avg_b
+                    b_factor_raw[res_id] = avg_b
 
     # Compute entropy over 7-residue windows
     residue_ids = sorted(res_b.keys())
@@ -297,6 +300,22 @@ def compute_ewcl_scores_from_pdb(pdb_text: str) -> Dict[int, float]:
         window = [res_b[r] for r in residue_ids[max(0, i-3):min(len(residue_ids), i+4)]]
         entropy = scipy.stats.entropy(window) if window else 0
         scores[res_id] = round(entropy, 4)
+
+    # Normalize scores to [0, 1]
+    if scores:
+        vals = list(scores.values())
+        min_val = min(vals)
+        max_val = max(vals)
+        for res_id in scores:
+            scores[res_id] = round((scores[res_id] - min_val) / (max_val - min_val + 1e-6), 4)
+
+    if return_metadata:
+        metadata = {
+            "residue_ids": residue_ids,
+            "b_factor": b_factor_raw,
+            "plddt": {}  # PDB files don't have pLDDT scores
+        }
+        return scores, metadata
 
     return scores
 

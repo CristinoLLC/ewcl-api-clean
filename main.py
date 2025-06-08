@@ -166,14 +166,22 @@ async def analyze(
     # Handle legacy payload format
     if 'pdb_id' in locals() and 'pdb_text' in locals() and pdb_text and pdb_id:
         print(f"🧪 Received request for {pdb_id}")
-        scores = compute_ewcl_scores_from_pdb(pdb_text)
+        scores, metadata = compute_ewcl_scores_from_pdb(pdb_text, return_metadata=True)
         
         if not scores:
             print(f"⚠️ EWCL returned empty scores for {pdb_id}")
             return JSONResponse(content={pdb_id: {}}, status_code=200)
             
         print(f"✅ EWCL returned {len(scores)} residues for {pdb_id}")
-        return JSONResponse(content={pdb_id: scores}, status_code=200)
+        
+        response = {
+            "ewcl_score": scores,  # normalized [0, 1] entropy-based score
+            "b_factor": metadata.get("b_factor", {}),  # optional raw values
+            "plddt": metadata.get("plddt", {}),        # optional AlphaFold scores
+            "residue_ids": metadata.get("residue_ids", list(scores.keys()))
+        }
+        
+        return JSONResponse(content={pdb_id: response}, status_code=200)
     
     try:
         plddt_scores = {}
