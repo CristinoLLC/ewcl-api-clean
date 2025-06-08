@@ -155,9 +155,26 @@ async def analyze(
         if request.headers.get("content-type", "").startswith("application/json"):
             data = await request.json()
             sequence = data.get("sequence", None)
+            # Also check for pdb_id and pdb_text for backward compatibility
+            pdb_id = data.get("pdb_id")
+            pdb_text = data.get("pdb_text")
     except Exception as e:
         print("❌ JSON parse error:", e)
+        
     print("DEBUG DATA (sequence):", sequence)
+    
+    # Handle legacy payload format
+    if 'pdb_id' in locals() and 'pdb_text' in locals() and pdb_text and pdb_id:
+        print(f"🧪 Received request for {pdb_id}")
+        scores = compute_ewcl_scores_from_pdb(pdb_text)
+        
+        if not scores:
+            print(f"⚠️ EWCL returned empty scores for {pdb_id}")
+            return JSONResponse(content={pdb_id: {}}, status_code=200)
+            
+        print(f"✅ EWCL returned {len(scores)} residues for {pdb_id}")
+        return JSONResponse(content={pdb_id: scores}, status_code=200)
+    
     try:
         plddt_scores = {}
         bfactors = {}
@@ -167,15 +184,18 @@ async def analyze(
         if file:
             contents = await file.read()
             filename = file.filename.lower()
+            print(f"🧪 Processing file: {filename}")
 
             if filename.endswith(".pdb"):
                 pdb_text = contents.decode("utf-8")
+                print("✅ Using PDB-based computation")
                 scores = compute_ewcl_scores_from_pdb(pdb_text)
                 bfactors = extract_bfactors(pdb_text)
                 source_type = "pdb"
                 has_structure = True
                 
             elif filename.endswith(".json"):
+                print("✅ Using AlphaFold JSON computation")
                 scores = compute_ewcl_scores_from_alphafold_json(contents)
                 plddt_scores = extract_plddt_scores(contents)
                 source_type = "alphafold_json"
@@ -183,11 +203,13 @@ async def analyze(
                 
             elif filename.endswith(".fasta") or filename.endswith(".fa"):
                 fasta = contents.decode("utf-8")
+                print("✅ Using FASTA sequence computation")
                 scores = compute_ewcl_scores_from_sequence(fasta)
                 source_type = "fasta"
                 has_structure = False
                 
             else:
+                print(f"❌ Unsupported file format: {filename}")
                 return JSONResponse(
                     status_code=400,
                     content={"error": "Unsupported file format"}
@@ -199,10 +221,20 @@ async def analyze(
             source_type = "sequence"
             has_structure = False
         else:
+            print("❌ No input provided")
             return JSONResponse(
                 status_code=400,
                 content={"error": "No input provided"}
             )
+
+        if not scores:
+            print(f"⚠️ EWCL computation returned empty scores for {source_type}")
+            return JSONResponse(
+                status_code=200,
+                content={"error": "No EWCL scores computed", "source_type": source_type}
+            )
+            
+        print(f"✅ EWCL returned {len(scores)} residues for {source_type}")
 
         # Calculate basic EWCL statistics
         ewcl_values = list(scores.values())
@@ -345,3 +377,33 @@ def validate_scores(request: ValidationRequest):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+# Manual test function for debugging
+def test_ewcl_function():
+    """Test EWCL computation locally before running the API"""
+    test_pdb_path = "test.pdb"
+    
+    if os.path.exists(test_pdb_path):
+        print(f"🧪 Testing EWCL computation with {test_pdb_path}")
+        with open(test_pdb_path) as f:
+            pdb_text = f.read()
+        
+        scores = compute_ewcl_scores_from_pdb(pdb_text)
+        print(f"Local test result: {len(scores)} residues computed")
+        print(f"Sample scores: {dict(list(scores.items())[:5])}")
+        
+        if scores:
+            print(f"Score range: {min(scores.values()):.4f} - {max(scores.values()):.4f}")
+        else:
+            print("⚠️ No scores computed - check PDB format")
+    else:
+        print(f"⚠️ Test file {test_pdb_path} not found")
+        print("Available files:", [f for f in os.listdir('.') if f.endswith('.pdb')])
+
+if __name__ == "__main__":
+    # Run manual test before starting the API
+    test_ewcl_function()
+    
+    # Start the API server
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

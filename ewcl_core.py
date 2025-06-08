@@ -212,6 +212,7 @@ def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None) -> Di
         Dictionary mapping residue IDs to EWCL scores
     """
     input_type = detect_input_type(input_text)
+    print(f"🧪 Input type: {input_type}")
     
     # Initialize scores
     b_factor_scores = {}
@@ -256,6 +257,10 @@ def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None) -> Di
             disorder_scores = run_iupred(sequence)
             # For FASTA, residue IDs are just positions in sequence
             residue_mapping = {i+1: aa for i, aa in enumerate(sequence)}
+    
+    print(f"B-factor: {len(b_factor_scores)} residues")
+    print(f"IUPred: {len(disorder_scores)} residues")
+    print(f"pLDDT: {len(plddt_scores)} residues")
             
     # Combine available entropy sources
     residue_ids = set(b_factor_scores.keys()) | set(disorder_scores.keys()) | set(plddt_scores.keys())
@@ -266,6 +271,8 @@ def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None) -> Di
         plddt_scores,
         weights
     )
+    
+    print(f"✅ Combined EWCL: {len(combined_scores)} residues")
     
     return combined_scores
 
