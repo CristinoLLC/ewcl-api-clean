@@ -114,7 +114,7 @@ def evaluate_disprot(ewcl_scores: dict, disprot_labels: dict, threshold: float =
     """Evaluate EWCL scores against DisProt labels using specified threshold"""
     matching_keys = set(ewcl_scores.keys()) & set(disprot_labels.keys())
     if not matching_keys:
-        raise ValueError("No matching residue IDs found between EWCL and DisProt data")
+        raise ValueError(f"No matching residue IDs found between EWCL and DisProt data (input size: {len(ewcl_scores)}, DisProt size: {len(disprot_labels)})")
         
     y_true = [disprot_labels[k] for k in matching_keys]
     y_scores = [ewcl_scores[k] for k in matching_keys]
@@ -206,9 +206,20 @@ async def analyze(
 
         # Calculate basic EWCL statistics
         ewcl_values = list(scores.values())
-        mean_ewcl = round(np.mean(ewcl_values), 4)
-        std_ewcl = round(np.std(ewcl_values), 4)
-        max_ewcl = round(np.max(ewcl_values), 4)
+        min_score = min(ewcl_values)
+        max_score = max(ewcl_values)
+
+        # Store raw + normalized scores
+        scores_normalized = {
+            k: round((v - min_score) / (max_score - min_score + 1e-6), 4)
+            for k, v in scores.items()
+        }
+
+        # Calculate statistics using normalized scores
+        normalized_values = list(scores_normalized.values())
+        mean_ewcl = round(np.mean(normalized_values), 4)
+        std_ewcl = round(np.std(normalized_values), 4)
+        max_ewcl = round(np.max(normalized_values), 4)
 
         # Calculate correlations if additional data exists
         correlation_summary = {}
@@ -249,6 +260,7 @@ async def analyze(
             mean_plddt = 0.0
             std_plddt = 0.0
 
+        # Predict disorder hallucination likelihood using key EWCL/structure statistics
         ai_label = predict_hallucination({
             "mean_ewcl": mean_ewcl,
             "std_ewcl": std_ewcl,
@@ -271,7 +283,8 @@ async def analyze(
             mutation_info = mutation_map.get(str(res_id_int)) or mutation_map.get(res_id_int)
             score_info = {
                 "residue_id": res_id_int,
-                "ewcl_score": score,
+                "ewcl_score_raw": score,
+                "ewcl_score": scores_normalized.get(res_id_int, 0),
                 "mutation": bool(mutation_info),
                 "mutation_info": mutation_info if mutation_info else None
             }
@@ -298,7 +311,9 @@ async def analyze(
                 }
             },
             "has_structure": has_structure,
-            "source_type": source_type
+            "source_type": source_type,
+            "normalization": "minmax_0_1",
+            "score_origin": source_type
         }
 
         if correlation_summary:
