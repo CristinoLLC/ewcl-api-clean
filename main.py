@@ -255,15 +255,11 @@ async def analyze(
         min_ewcl_raw = round(min_score, 4)
         max_ewcl_raw = round(max_score, 4)
 
-        # Dynamic safeguard for score normalization
-        if max(ewcl_values) - min(ewcl_values) > 0.05:
-            scores_normalized = scores  # Good range, use as-is
-        else:
-            # Fallback normalize to rescue bad input
-            scores_normalized = {
-                k: round((v - min_score) / (max_score - min_score + 1e-6), 4)
-                for k, v in scores.items()
-            }
+        # 🔁 Forced min-max normalization - always normalize regardless of range
+        scores_normalized = {
+            k: round((v - min_score) / (max_score - min_score + 1e-6), 4)
+            for k, v in scores.items()
+        }
 
         # Calculate statistics using normalized scores
         normalized_values = list(scores_normalized.values())

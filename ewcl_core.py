@@ -140,6 +140,8 @@ def combine_entropy_sources(
     weights: Dict[str, float] = None
 ) -> Dict[int, float]:
     """Combine multiple entropy sources with weighted averaging"""
+    from math import tanh
+    
     if weights is None:
         # Default weights if not specified
         weights = {
@@ -171,8 +173,10 @@ def combine_entropy_sources(
             
         if plddt_scores and res_id in plddt_scores:
             score_sum += plddt_scores[res_id] * norm_weights.get("plddt", 0)
-            
-        combined_scores[res_id] = round(score_sum, 4)
+        
+        # Optional nonlinear scaling experiment
+        score = tanh(score_sum * 2)  # Apply tanh scaling for better dynamic range
+        combined_scores[res_id] = round(score, 4)
     
     # Apply safe normalization and cap to prevent saturation artifacts
     if combined_scores:
