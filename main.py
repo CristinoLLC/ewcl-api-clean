@@ -248,12 +248,20 @@ async def analyze(
         ewcl_values = list(scores.values())
         min_score = min(ewcl_values)
         max_score = max(ewcl_values)
+        
+        # Store raw EWCL range for export
+        min_ewcl_raw = round(min_score, 4)
+        max_ewcl_raw = round(max_score, 4)
 
-        # Store raw + normalized scores
-        scores_normalized = {
-            k: round((v - min_score) / (max_score - min_score + 1e-6), 4)
-            for k, v in scores.items()
-        }
+        # Dynamic safeguard for score normalization
+        if max(ewcl_values) - min(ewcl_values) > 0.05:
+            scores_normalized = scores  # Good range, use as-is
+        else:
+            # Fallback normalize to rescue bad input
+            scores_normalized = {
+                k: round((v - min_score) / (max_score - min_score + 1e-6), 4)
+                for k, v in scores.items()
+            }
 
         # Calculate statistics using normalized scores
         normalized_values = list(scores_normalized.values())
@@ -321,10 +329,21 @@ async def analyze(
         for res_id, score in scores.items():
             res_id_int = int(res_id)
             mutation_info = mutation_map.get(str(res_id_int)) or mutation_map.get(res_id_int)
+            normalized_score = scores_normalized.get(res_id_int, 0)
+            
+            # Classify disorder based on normalized EWCL score
+            if normalized_score > 0.7:
+                disorder_class = "disordered"
+            elif normalized_score < 0.3:
+                disorder_class = "ordered"
+            else:
+                disorder_class = "intermediate"
+            
             score_info = {
                 "residue_id": res_id_int,
                 "ewcl_score_raw": score,
-                "ewcl_score": scores_normalized.get(res_id_int, 0),
+                "ewcl_score": normalized_score,
+                "disorder_class": disorder_class,
                 "mutation": bool(mutation_info),
                 "mutation_info": mutation_info if mutation_info else None
             }
@@ -343,6 +362,8 @@ async def analyze(
             "mean_ewcl": mean_ewcl,
             "std_ewcl": std_ewcl,
             "max_ewcl": max_ewcl,
+            "min_ewcl_raw": min_ewcl_raw,
+            "max_ewcl_raw": max_ewcl_raw,
             "statistics": {
                 "ewcl": {
                     "mean": mean_ewcl,
