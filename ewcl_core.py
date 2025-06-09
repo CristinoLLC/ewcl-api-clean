@@ -345,3 +345,30 @@ def compute_ewcl_scores_from_sequence(fasta_text: str) -> Dict[int, float]:
         score = round(0.2 + (0.8 * (1 - x)), 4)  # entropy high in center
         scores[i + 1] = score
     return scores
+
+def classify_disorder(score: float) -> str:
+    """Classify disorder level based on EWCL score"""
+    if score >= 0.8:
+        return "Disordered"
+    elif score >= 0.4:
+        return "Medium"
+    else:
+        return "Ordered"
+
+def compute_ewcl_api_response(input_text: str) -> Dict:
+    """Compute complete EWCL API response with scores, classes, and metadata"""
+    scores = compute_ewcl_scores(input_text)
+    classes = {res_id: classify_disorder(score) for res_id, score in scores.items()}
+    metadata = {}
+
+    input_type = detect_input_type(input_text)
+    if input_type == "alphafold":
+        metadata["plddt"] = parse_alphafold_json(input_text)
+    elif input_type == "pdb":
+        metadata["b_factor"] = compute_bfactor_scores(input_text)
+
+    return {
+        "scores": scores,
+        "classes": classes,
+        "metadata": metadata
+    }

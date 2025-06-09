@@ -16,7 +16,9 @@ from predict import predict_hallucination
 from ewcl_core import (
     compute_ewcl_scores_from_pdb,
     compute_ewcl_scores_from_alphafold_json,
-    compute_ewcl_scores_from_sequence
+    compute_ewcl_scores_from_sequence,
+    classify_disorder,
+    compute_ewcl_api_response
 )
 import json
 from pathlib import Path
