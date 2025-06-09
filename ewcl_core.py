@@ -174,12 +174,14 @@ def combine_entropy_sources(
             
         combined_scores[res_id] = round(score_sum, 4)
     
+    # Apply safe normalization and cap to prevent saturation artifacts
     if combined_scores:
         vals = list(combined_scores.values())
         min_val = min(vals)
         max_val = max(vals)
         for res_id in combined_scores:
-            combined_scores[res_id] = round((combined_scores[res_id] - min_val) / (max_val - min_val + 1e-6), 4)
+            norm = (combined_scores[res_id] - min_val) / (max_val - min_val + 1e-6)
+            combined_scores[res_id] = round(min(norm, 0.85), 4)  # cap score to avoid false saturation
         
     return combined_scores
 
