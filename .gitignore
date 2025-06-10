@@ -25,3 +25,4 @@ node_modules/
 
 # Git-related submodules you don't want
 .nvm/
+models/unified_entropy_model.pkl
