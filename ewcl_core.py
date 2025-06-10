@@ -137,7 +137,8 @@ def combine_entropy_sources(
     b_factor_scores: Dict[int, float] = None,
     disorder_scores: Dict[int, float] = None, 
     plddt_scores: Dict[int, float] = None,
-    weights: Dict[str, float] = None
+    weights: Dict[str, float] = None,
+    normalize: bool = True  # ← new toggle
 ) -> Dict[int, float]:
     """Combine multiple entropy sources with weighted averaging"""
     from math import tanh
@@ -178,8 +179,8 @@ def combine_entropy_sources(
         score = tanh(score_sum * 2)  # Apply tanh scaling for better dynamic range
         combined_scores[res_id] = round(score, 4)
     
-    # Apply safe normalization and cap to prevent saturation artifacts
-    if combined_scores:
+    # Optional normalization
+    if normalize and combined_scores:
         vals = list(combined_scores.values())
         min_val = min(vals)
         max_val = max(vals)
@@ -206,13 +207,14 @@ def detect_input_type(input_text: str) -> str:
     # Default to PDB if unsure
     return "pdb"
 
-def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None) -> Dict[int, float]:
+def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None, normalize: bool = True) -> Dict[int, float]:
     """
     Compute EWCL scores from input structure/sequence using multiple entropy sources
     
     Args:
         input_text: PDB file content, FASTA sequence, or AlphaFold JSON
         weights: Dictionary of weights for each entropy source
+        normalize: Whether to normalize scores to [0, 1] range
         
     Returns:
         Dictionary mapping residue IDs to EWCL scores
@@ -275,7 +277,8 @@ def compute_ewcl_scores(input_text: str, weights: Dict[str, float] = None) -> Di
         b_factor_scores, 
         disorder_scores, 
         plddt_scores,
-        weights
+        weights,
+        normalize=normalize  # 🔁 propagate
     )
     
     print(f"✅ Combined EWCL: {len(combined_scores)} residues")
@@ -359,9 +362,9 @@ def classify_disorder(score: float) -> str:
     else:
         return "Ordered"
 
-def compute_ewcl_api_response(input_text: str) -> Dict:
+def compute_ewcl_api_response(input_text: str, normalize: bool = True) -> Dict:
     """Compute complete EWCL API response with scores, classes, and metadata"""
-    scores = compute_ewcl_scores(input_text)
+    scores = compute_ewcl_scores(input_text, normalize=normalize)
     classes = {res_id: classify_disorder(score) for res_id, score in scores.items()}
     metadata = {}
 

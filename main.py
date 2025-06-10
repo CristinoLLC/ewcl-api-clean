@@ -171,10 +171,12 @@ async def analyze(
     file: Optional[UploadFile] = File(None)
 ):
     sequence = None
+    normalize = True  # Default to normalized mode
     try:
         if request.headers.get("content-type", "").startswith("application/json"):
             data = await request.json()
             sequence = data.get("sequence", None)
+            normalize = data.get("normalize", True)  # Accept normalize flag from frontend
             # Also check for pdb_id and pdb_text for backward compatibility
             pdb_id = data.get("pdb_id")
             pdb_text = data.get("pdb_text")
@@ -182,6 +184,7 @@ async def analyze(
         print("❌ JSON parse error:", e)
         
     print("DEBUG DATA (sequence):", sequence)
+    print("🎛️ Normalization mode:", "enabled" if normalize else "disabled")
     
     # Handle legacy payload format
     if 'pdb_id' in locals() and 'pdb_text' in locals() and pdb_text and pdb_id:
