@@ -7,8 +7,9 @@ __pycache__/
 .venv/
 .env/
 
-# Model and binary files
+# Model and binary files - exclude large models but allow fallback
 *.pkl
+!models/ewcl_model.pkl
 *.h5
 *.onnx
 
