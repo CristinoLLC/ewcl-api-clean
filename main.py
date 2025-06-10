@@ -346,19 +346,24 @@ async def analyze(
         for res_id, score in scores.items():
             res_id_int = int(res_id)
             mutation_info = mutation_map.get(str(res_id_int)) or mutation_map.get(res_id_int)
-            normalized_score = scores_normalized.get(res_id_int, 0)
             
-            # Classify disorder based on normalized EWCL score
-            if normalized_score > 0.7:
+            # Use raw score for absolute thresholding to avoid artificial inflation
+            raw_score = score
+            
+            # Classify disorder based on raw EWCL score (absolute thresholding)
+            if raw_score > 0.7:
                 disorder_class = "disordered"
-            elif normalized_score < 0.3:
+            elif raw_score < 0.3:
                 disorder_class = "ordered"
             else:
                 disorder_class = "intermediate"
             
+            # Still provide normalized score for visualization purposes
+            normalized_score = scores_normalized.get(res_id_int, 0)
+            
             score_info = {
                 "residue_id": res_id_int,
-                "ewcl_score_raw": score,
+                "ewcl_score_raw": raw_score,
                 "ewcl_score": normalized_score,
                 "disorder_class": disorder_class,
                 "mutation": bool(mutation_info),
