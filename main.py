@@ -62,6 +62,9 @@ class CollapseAnalysisRequest(BaseModel):
     b_factor: List[float]
     plddt: List[float]
 
+class StaticInput(BaseModel):
+    input: str
+
 app = FastAPI(
     title="EWCL API",
     version="1.0.0",
@@ -468,6 +471,51 @@ async def analyze_collapse(request: CollapseAnalysisRequest):
         return JSONResponse(
             status_code=500,
             content={"error": f"Model analysis failed: {str(e)}"}
+        )
+
+@app.post("/static-entropy")
+def static_entropy_route(payload: StaticInput):
+    """
+    Compute EWCL scores using the static entropy tool for simple sequence analysis
+    """
+    try:
+        from ewcl_toolkit.ewcl_static_tool import ewcl_score_protein, parse_fasta
+        
+        # Handle both raw sequence and FASTA format
+        input_text = payload.input.strip()
+        if input_text.startswith(">"):
+            # FASTA format
+            sequence = parse_fasta(input_text)
+        else:
+            # Raw sequence
+            sequence = input_text.replace("\n", "").replace(" ", "")
+        
+        if not sequence:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No valid sequence provided"}
+            )
+        
+        scores = ewcl_score_protein(sequence)
+        classes = {
+            res_id: "Disordered" if score >= 0.8 else "Medium" if score >= 0.4 else "Ordered"
+            for res_id, score in scores.items()
+        }
+        
+        return {
+            "scores": scores,
+            "classes": classes,
+            "metadata": {
+                "sequence_length": len(sequence),
+                "method": "static_entropy",
+                "normalization": "global_frequency"
+            }
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Static entropy computation failed: {str(e)}"}
         )
 
 # Manual test function for debugging
