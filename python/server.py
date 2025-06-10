@@ -10,8 +10,8 @@ app = FastAPI()
 def health():
     return {"status": "ok"}
 
-# Load your local model
-model = joblib.load("models/ewcl_model_final.pkl")
+# Load the unified model (updated from obsolete ewcl_model_final.pkl)
+model = joblib.load("models/unified_entropy_model.pkl")
 
 # Define schema for prediction input
 class InputData(BaseModel):

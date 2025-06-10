@@ -8,10 +8,11 @@ from sklearn.metrics import (
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException, Body
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import os
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
+import joblib
 from predict import predict_hallucination
 from ewcl_core import (
     compute_ewcl_scores_from_pdb,
@@ -24,6 +25,19 @@ import json
 from pathlib import Path
 from pydantic import BaseModel
 from validation import validate_ewcl_scores
+from model_loader import EntropyCollapseModel
+
+# ✅ Load the unified model only
+try:
+    model = EntropyCollapseModel(model_path="models/unified_entropy_model.pkl")
+    print("🧠 Unified Entropy Model loaded successfully from: models/unified_entropy_model.pkl")
+    unified_model = model.model  # Keep backward compatibility
+    entropy_collapse_model = model
+except Exception as e:
+    print(f"⚠️ Could not load unified entropy model: {e}")
+    model = None
+    unified_model = None
+    entropy_collapse_model = None
 
 # Load mutation reference once
 MUTATION_REF_PATH = Path("api/data/ewcl_mutation_reference.json")
@@ -43,6 +57,10 @@ class ValidationRequest(BaseModel):
     ewcl_scores: Dict[int, float]
     disprot_labels: Dict[int, int]
     threshold: float = 0.297
+
+class CollapseAnalysisRequest(BaseModel):
+    b_factor: List[float]
+    plddt: List[float]
 
 app = FastAPI(
     title="EWCL API",
@@ -245,6 +263,7 @@ async def analyze(
             )
             
         print(f"✅ EWCL returned {len(scores)} residues for {source_type}")
+        print("✅ Using unified entropy model to predict EWCL")
 
         # Calculate basic EWCL statistics
         ewcl_values = list(scores.values())
@@ -404,6 +423,44 @@ def validate_scores(request: ValidationRequest):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+@app.post("/analyze-collapse")
+async def analyze_collapse(request: CollapseAnalysisRequest):
+    """
+    Use unified entropy model to analyze collapse risk from B-factor and pLDDT inputs
+    """
+    if not unified_model:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Unified entropy model not available"}
+        )
+    
+    try:
+        # Convert inputs to pandas Series as expected by the model
+        bf_series = pd.Series(request.b_factor)
+        plddt_series = pd.Series(request.plddt)
+        
+        # Use the model's analyze method
+        df = unified_model.analyze(bf_series, plddt_series)
+        
+        # Convert DataFrame to records for JSON response
+        result = df.to_dict(orient="records")
+        
+        return {
+            "status": "success",
+            "analysis": result,
+            "model_version": "unified_entropy_model",
+            "input_length": {
+                "b_factor": len(request.b_factor),
+                "plddt": len(request.plddt)
+            }
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Model analysis failed: {str(e)}"}
+        )
 
 # Manual test function for debugging
 def test_ewcl_function():
