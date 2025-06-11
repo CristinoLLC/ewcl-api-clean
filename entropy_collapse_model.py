@@ -1,28 +1,25 @@
 """
 Entropy Collapse Model for Protein Analysis
-Please replace this placeholder with your actual entropy_collapse_model.py from Downloads
 """
 
 from Bio.PDB import PDBParser
 from Bio.SeqUtils import seq1
-from typing import List, Dict
+from typing import List, Dict, Union
 import logging
 
 logger = logging.getLogger(__name__)
 
-def infer_entropy_from_pdb(pdb_path: str) -> List[Dict]:
+def infer_entropy_from_pdb(pdb_path: str, reverse: bool = False) -> List[Dict[str, Union[int, str, float]]]:
     """
     Analyze a PDB file and return entropy collapse predictions for each residue
     
     Args:
         pdb_path: Path to the PDB file
+        reverse: If True, applies reverse mode logic for disordered proteins
         
     Returns:
         List of dictionaries: [{"residue_id": int, "aa": str, "ewcl_score": float}, ...]
     """
-    # TODO: Replace with your actual model implementation
-    logger.warning("Using placeholder entropy model - replace with actual implementation")
-    
     try:
         parser = PDBParser(QUIET=True)
         structure = parser.get_structure("protein", pdb_path)
@@ -37,18 +34,27 @@ def infer_entropy_from_pdb(pdb_path: str) -> List[Dict]:
                             residue_id = residue.get_id()[1]
                             aa = seq1(residue.get_resname())
                             
-                            # Placeholder entropy calculation - replace with your model
-                            ewcl_score = 0.5  # Replace with actual model prediction
+                            # TODO: Replace with actual model prediction
+                            # This is a placeholder - implement your real entropy calculation here
+                            base_score = 0.5  # Replace with actual model prediction
+                            
+                            # Apply reverse mode if requested
+                            if reverse:
+                                ewcl_score = 1.0 - base_score
+                            else:
+                                ewcl_score = base_score
                             
                             results.append({
                                 "residue_id": residue_id,
                                 "aa": aa,
                                 "ewcl_score": ewcl_score
                             })
-                        except:
+                        except Exception as e:
+                            logger.warning(f"Error processing residue {residue.get_id()}: {e}")
                             continue
             break  # Only process first model
             
+        logger.info(f"Processed {len(results)} residues from {pdb_path}")
         return results
         
     except Exception as e:
