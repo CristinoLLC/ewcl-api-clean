@@ -1,19 +1,13 @@
-"""
-Entropy Collapse Model for Protein Analysis
-Real implementation with sliding window entropy calculation
-"""
-
 import numpy as np
 from Bio.PDB import PDBParser
 from Bio.SeqUtils import seq1 as three_to_one
-from typing import List, Dict
+from typing import Dict
 import os
 import logging
 
 logger = logging.getLogger(__name__)
 
 def extract_residues(file_path: str):
-    """Extract residues from PDB file"""
     parser = PDBParser(QUIET=True)
     structure = parser.get_structure("protein", file_path)
     model = structure[0]
@@ -21,7 +15,6 @@ def extract_residues(file_path: str):
     return residues
 
 def compute_ewcl_entropy(residues, window=5):
-    """Compute entropy scores using sliding window approach"""
     scores = []
     for i in range(len(residues)):
         window_res = residues[max(0, i - window):min(len(residues), i + window + 1)]
@@ -39,77 +32,62 @@ def compute_ewcl_entropy(residues, window=5):
     return scores
 
 def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
-    """
-    Main function to analyze PDB file and return entropy scores
-    
-    Args:
-        path: Path to PDB file
-        reverse: If True, applies reverse mode for disordered proteins
-        
-    Returns:
-        Complete JSON response with status, mode, and results
-    """
     logger.info("🧠 Real entropy model processing PDB file")
     
     try:
         residues = extract_residues(path)
         logger.info(f"📊 Extracted {len(residues)} residues from PDB")
-        
+
         if not residues:
-            logger.warning("❌ No residues found in PDB file")
+            logger.warning("❌ No residues found")
             return {
                 "status": "error",
                 "mode": "reverse" if reverse else "normal",
                 "reverse": reverse,
                 "results": [],
-                "message": "No valid residues found in PDB file"
+                "message": "No valid residues found"
             }
-        
+
         entropy_scores = compute_ewcl_entropy(residues)
-        logger.info(f"📊 Computed {len(entropy_scores)} entropy scores")
+
+        # ✅ Normalize entropy (Y)
+        min_score = min(entropy_scores)
+        max_score = max(entropy_scores)
+        normalized_scores = [
+            (s - min_score) / (max_score - min_score) if max_score > min_score else 0.5
+            for s in entropy_scores
+        ]
 
         results = []
-        for i, (res, score) in enumerate(zip(residues, entropy_scores)):
+        for i, (res, raw, norm) in enumerate(zip(residues, entropy_scores, normalized_scores)):
             try:
                 aa = three_to_one(res.resname)
             except Exception:
                 aa = "X"
-            
-            # Apply reverse mode if requested
-            final_score = (1.0 - score) if reverse else score
-            
+
+            score = 1.0 - norm if reverse else norm  # reverse entropy if needed
             results.append({
                 "residue_id": int(res.id[1]),
                 "aa": aa,
-                "ewcl_score": round(final_score, 6)
+                "ewcl_score": round(score, 6),         # normalized (0–1), reverse if requested
+                "ewcl_score_raw": round(raw, 6),       # original entropy (e.g. 2.4–3.2)
+                "resi": int(res.id[1]),
+                "resiLabel": str(res.id[1])
             })
 
-        logger.info(f"✅ Successfully processed {len(results)} residues with real entropy model")
-        
-        # Ensure we have results before returning
-        if not results:
-            logger.warning("❌ No valid results generated")
-            return {
-                "status": "error", 
-                "mode": "reverse" if reverse else "normal",
-                "reverse": reverse,
-                "results": [],
-                "message": "Failed to generate valid entropy scores"
-            }
-        
-        # Return complete JSON response for frontend compatibility
+        logger.info(f"✅ Successfully processed {len(results)} residues")
         return {
             "status": "success",
             "mode": "reverse" if reverse else "normal",
             "reverse": reverse,
-            "scores": results  # Wrap results in scores key for frontend compatibility
+            "scores": results
         }
-        
+
     except Exception as e:
         logger.error(f"❌ Error in entropy analysis: {e}")
         return {
             "status": "error",
-            "mode": "reverse" if reverse else "normal", 
+            "mode": "reverse" if reverse else "normal",
             "reverse": reverse,
             "results": [],
             "message": str(e)
