@@ -102,7 +102,15 @@ def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
             "status": "success",
             "mode": "reverse" if reverse else "normal",
             "reverse": reverse,
-            "results": results
+            "scores": [
+                {
+                    "residue_id": r["residue_id"],
+                    "aa": r["aa"],
+                    "ewcl_score": r["ewcl_score"],
+                    "ewcl_score_raw": r["ewcl_score"]  # optional raw
+                }
+                for r in results
+            ]
         }
         
     except Exception as e:
