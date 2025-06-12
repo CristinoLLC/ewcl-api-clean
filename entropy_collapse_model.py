@@ -3,111 +3,84 @@ Entropy Collapse Model for Protein Analysis
 Real implementation with sliding window entropy calculation
 """
 
+import numpy as np
 from Bio.PDB import PDBParser
 from Bio.SeqUtils import seq1 as three_to_one
-from typing import List, Dict, Union
-import numpy as np
+from typing import List, Dict
+import os
 import logging
 
 logger = logging.getLogger(__name__)
 
-def compute_ewcl(residues, window=5):
-    """
-    Compute entropy-weighted collapse likelihood scores using sliding window
-    
-    Args:
-        residues: List of Bio.PDB residue objects
-        window: Window size for local entropy calculation
-        
-    Returns:
-        List of entropy scores for each residue
-    """
-    entropy_scores = []
-    for i in range(len(residues)):
-        # Extract window of residues around current position
-        window_residues = residues[max(0, i - window):min(len(residues), i + window + 1)]
-        
-        # Count amino acid occurrences in window
-        counts = {}
-        for res in window_residues:
-            try:
-                aa = three_to_one(res.get_resname())
-                counts[aa] = counts.get(aa, 0) + 1
-            except:
-                continue
-        
-        # Calculate Shannon entropy
-        total = sum(counts.values())
-        if total > 0:
-            probs = [v / total for v in counts.values()]
-            entropy = -sum(p * np.log2(p) for p in probs if p > 0)
-        else:
-            entropy = 0
-            
-        entropy_scores.append(entropy)
-    
-    return entropy_scores
+def extract_residues(file_path: str):
+    """Extract residues from PDB file"""
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure("protein", file_path)
+    model = structure[0]
+    residues = [res for chain in model for res in chain if res.id[0] == " "]
+    return residues
 
-def infer_entropy_from_pdb(pdb_path: str, reverse: bool = False) -> List[Dict[str, Union[int, str, float]]]:
+def compute_ewcl_entropy(residues, window=5):
+    """Compute entropy scores using sliding window approach"""
+    scores = []
+    for i in range(len(residues)):
+        window_res = residues[max(0, i - window):min(len(residues), i + window + 1)]
+        counts = {}
+        for res in window_res:
+            try:
+                aa = three_to_one(res.resname)
+                counts[aa] = counts.get(aa, 0) + 1
+            except Exception:
+                continue
+        total = sum(counts.values())
+        probs = [v / total for v in counts.values()] if total > 0 else []
+        entropy = -sum(p * np.log2(p) for p in probs if p > 0) if probs else 0
+        scores.append(entropy)
+    return scores
+
+def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
     """
-    Analyze a PDB file and return entropy collapse predictions for each residue
+    Main function to analyze PDB file and return entropy scores
     
     Args:
-        pdb_path: Path to the PDB file
-        reverse: If True, applies reverse mode logic for disordered proteins
+        path: Path to PDB file
+        reverse: If True, applies reverse mode for disordered proteins
         
     Returns:
-        List of dictionaries: [{"residue_id": int, "aa": str, "ewcl_score": float}, ...]
+        Complete JSON response with status, mode, and results
     """
-    logger.info("🧠 Real entropy model loaded successfully.")
+    logger.info("🧠 Real entropy model processing PDB file")
     
     try:
-        parser = PDBParser(QUIET=True)
-        structure = parser.get_structure("protein", pdb_path)
-        
+        residues = extract_residues(path)
+        entropy_scores = compute_ewcl_entropy(residues)
+
         results = []
-        residues = []
-        
-        # Collect all residues first
-        for model in structure:
-            for chain in model:
-                for residue in chain:
-                    if residue.get_id()[0] == " ":  # Standard amino acid
-                        residues.append(residue)
-            break  # Only process first model
-        
-        if not residues:
-            logger.warning("No valid residues found in PDB file")
-            return []
-        
-        # Compute real entropy scores using sliding window
-        scores = compute_ewcl(residues)
-        
-        # Build results with real entropy calculations
-        for i, residue in enumerate(residues):
+        for res, score in zip(residues, entropy_scores):
             try:
-                residue_id = residue.get_id()[1]
-                aa = three_to_one(residue.get_resname())
-                base_score = scores[i] if i < len(scores) else 0.0
-                
-                # Apply reverse mode if requested
-                if reverse:
-                    ewcl_score = 1.0 - base_score
-                else:
-                    ewcl_score = base_score
-                
-                results.append({
-                    "residue_id": residue_id,
-                    "aa": aa,
-                    "ewcl_score": round(ewcl_score, 6)
-                })
-            except Exception as e:
-                logger.warning(f"Error processing residue {residue.get_id()}: {e}")
-                continue
+                aa = three_to_one(res.resname)
+            except Exception:
+                aa = "X"
+            
+            # Apply reverse mode if requested
+            final_score = (1.0 - score) if reverse else score
+            
+            results.append({
+                "residue_id": int(res.id[1]),
+                "aa": aa,
+                "ewcl_score": round(final_score, 6)
+            })
+
+        logger.info(f"✅ Successfully processed {len(results)} residues with real entropy model")
         
-        logger.info(f"✅ Processed {len(results)} residues with real entropy model from {pdb_path}")
-        return results
+        # Return complete JSON response for frontend compatibility
+        return {
+            "status": "success",
+            "mode": "reverse" if reverse else "normal",
+            "reverse": reverse,
+            "results": results
+        }
         
     except Exception as e:
-        logger.error(f"Error processing PDB file {pdb_path}: {e}")
+        logger.error(f"Error in entropy analysis: {e}")
         raise
