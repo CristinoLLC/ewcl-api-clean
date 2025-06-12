@@ -53,10 +53,23 @@ def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
     
     try:
         residues = extract_residues(path)
+        logger.info(f"📊 Extracted {len(residues)} residues from PDB")
+        
+        if not residues:
+            logger.warning("❌ No residues found in PDB file")
+            return {
+                "status": "error",
+                "mode": "reverse" if reverse else "normal",
+                "reverse": reverse,
+                "results": [],
+                "message": "No valid residues found in PDB file"
+            }
+        
         entropy_scores = compute_ewcl_entropy(residues)
+        logger.info(f"📊 Computed {len(entropy_scores)} entropy scores")
 
         results = []
-        for res, score in zip(residues, entropy_scores):
+        for i, (res, score) in enumerate(zip(residues, entropy_scores)):
             try:
                 aa = three_to_one(res.resname)
             except Exception:
@@ -73,6 +86,17 @@ def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
 
         logger.info(f"✅ Successfully processed {len(results)} residues with real entropy model")
         
+        # Ensure we have results before returning
+        if not results:
+            logger.warning("❌ No valid results generated")
+            return {
+                "status": "error", 
+                "mode": "reverse" if reverse else "normal",
+                "reverse": reverse,
+                "results": [],
+                "message": "Failed to generate valid entropy scores"
+            }
+        
         # Return complete JSON response for frontend compatibility
         return {
             "status": "success",
@@ -82,5 +106,11 @@ def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
         }
         
     except Exception as e:
-        logger.error(f"Error in entropy analysis: {e}")
-        raise
+        logger.error(f"❌ Error in entropy analysis: {e}")
+        return {
+            "status": "error",
+            "mode": "reverse" if reverse else "normal", 
+            "reverse": reverse,
+            "results": [],
+            "message": str(e)
+        }
