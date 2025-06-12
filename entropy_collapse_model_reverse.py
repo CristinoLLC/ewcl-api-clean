@@ -35,6 +35,9 @@ def compute_ewcl_entropy(residues, window=5):
 def normalize_all_methods(raw_scores):
     scores = np.array(raw_scores)
 
+    # Reverse raw scores
+    scores = scores.max() - scores
+
     # Min-Max Normalization
     min_val, max_val = scores.min(), scores.max()
     minmax = (scores - min_val) / (max_val - min_val) if max_val != min_val else np.zeros_like(scores)
@@ -59,7 +62,7 @@ def normalize_all_methods(raw_scores):
     ]
 
 def infer_entropy_from_pdb(path: str) -> Dict:
-    logger.info("🧠 Real entropy model processing PDB file")
+    logger.info("🧠 Reverse entropy model processing PDB file")
 
     try:
         residues = extract_residues(path)
@@ -69,8 +72,8 @@ def infer_entropy_from_pdb(path: str) -> Dict:
             logger.warning("❌ No residues found")
             return {
                 "status": "error",
-                "mode": "normal",
-                "reverse": False,
+                "mode": "reverse",
+                "reverse": True,
                 "results": [],
                 "message": "No valid residues found"
             }
@@ -96,17 +99,17 @@ def infer_entropy_from_pdb(path: str) -> Dict:
         logger.info(f"✅ Successfully processed {len(normalized_results)} residues")
         return {
             "status": "success",
-            "mode": "normal",
-            "reverse": False,
+            "mode": "reverse",
+            "reverse": True,
             "scores": normalized_results
         }
 
     except Exception as e:
-        logger.error(f"❌ Error in entropy analysis: {e}")
+        logger.error(f"❌ Error in reverse entropy analysis: {e}")
         return {
             "status": "error",
-            "mode": "normal",
-            "reverse": False,
+            "mode": "reverse",
+            "reverse": True,
             "results": [],
             "message": str(e)
         }

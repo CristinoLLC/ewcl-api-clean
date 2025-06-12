@@ -7,21 +7,17 @@ import logging
 from fastapi.responses import JSONResponse
 
 from entropy_collapse_model import infer_entropy_from_pdb
+from entropy_collapse_model_reverse import infer_entropy_from_pdb as infer_entropy_reverse
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 
-# ✅ Allow CORS from specific origins
-origins = [
-    "http://localhost:3000",
-    "https://ewclx.com",
-    "https://www.ewcl.com",
-    "https://www.ewclx.com",
-]
+# ✅ Allow CORS from all origins
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=origins,  # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,7 +25,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "EWCL API running"}
+    return {"status": "EWCL API running", "message": "CORS enabled for all origins"}
 
 @app.get("/health")
 def health_check():
@@ -65,28 +61,24 @@ async def analyze_file(file: UploadFile = File(...)):
 @app.post("/analyze-rev")
 async def analyze_reverse(file: UploadFile = File(...)):
     try:
-        # Prevent accidental call
-        if not file.filename.endswith("-reverse-true"):
-            return JSONResponse(status_code=400, content={"error": "Reverse mode disabled"})
-
-        # 🧪 Save file
+        # ⏳ Save uploaded file
         suffix = os.path.splitext(file.filename)[-1]
         with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             shutil.copyfileobj(file.file, tmp)
             tmp_path = tmp.name
 
-        logging.info(f"📂 Reverse mode analysis for: {file.filename}")
+        logging.info(f"📂 Processing file in reverse mode: {file.filename}")
 
-        # 🔄 Call same entropy model - model returns complete JSON response
-        result = infer_entropy_from_pdb(tmp_path, reverse=True)
+        # 🔄 Run reverse entropy-based EWCL - reverse model returns complete JSON response
+        result = infer_entropy_reverse(tmp_path)
 
         os.remove(tmp_path)
 
-        # Return the result directly since model already provides complete JSON
+        # Return the result directly since reverse model already provides complete JSON
         return result
 
     except Exception as e:
-        logging.exception("❌ Error in reverse analysis")
+        logging.exception("❌ Error during reverse analysis")
         return {
             "status": "error",
             "message": str(e),
