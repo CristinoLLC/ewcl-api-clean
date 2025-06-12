@@ -2,3 +2,4 @@ fastapi
 uvicorn[standard]
 biopython==1.85
 python-multipart
+numpy
