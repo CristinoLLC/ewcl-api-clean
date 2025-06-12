@@ -4,6 +4,7 @@ from tempfile import NamedTemporaryFile
 import shutil
 import os
 import logging
+from fastapi.responses import JSONResponse
 
 from entropy_collapse_model import infer_entropy_from_pdb
 
@@ -64,6 +65,10 @@ async def analyze_file(file: UploadFile = File(...)):
 @app.post("/analyze-rev")
 async def analyze_reverse(file: UploadFile = File(...)):
     try:
+        # Prevent accidental call
+        if not file.filename.endswith("-reverse-true"):
+            return JSONResponse(status_code=400, content={"error": "Reverse mode disabled"})
+
         # 🧪 Save file
         suffix = os.path.splitext(file.filename)[-1]
         with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
