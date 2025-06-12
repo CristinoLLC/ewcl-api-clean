@@ -4,6 +4,7 @@ from Bio.SeqUtils import seq1 as three_to_one
 from typing import Dict
 import os
 import logging
+from scipy.stats import rankdata
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,39 @@ def compute_ewcl_entropy(residues, window=5):
         scores.append(entropy)
     return scores
 
+def normalize_all_methods(raw_scores, reverse=False):
+    scores = np.array(raw_scores)
+
+    # Reverse raw scores if requested
+    if reverse:
+        scores = scores.max() - scores
+
+    # Min-Max Normalization
+    min_val, max_val = scores.min(), scores.max()
+    minmax = (scores - min_val) / (max_val - min_val) if max_val != min_val else np.zeros_like(scores)
+
+    # Z-score Normalization
+    mean, std = scores.mean(), scores.std()
+    zscore = (scores - mean) / std if std != 0 else np.zeros_like(scores)
+
+    # Quantile Normalization (0-1 scale based on rank)
+    quantile = (rankdata(scores, method='average') - 1) / (len(scores) - 1) if len(scores) > 1 else np.zeros_like(scores)
+
+    # Return as list of dicts per residue
+    return [
+        {
+            "residue_id": i + 1,
+            "ewcl_score_raw": float(raw),
+            "ewcl_minmax": float(mm),
+            "ewcl_zscore": float(z),
+            "ewcl_quantile": float(q),
+        }
+        for i, (raw, mm, z, q) in enumerate(zip(raw_scores, minmax, zscore, quantile))
+    ]
+
 def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
     logger.info("🧠 Real entropy model processing PDB file")
-    
+
     try:
         residues = extract_residues(path)
         logger.info(f"📊 Extracted {len(residues)} residues from PDB")
@@ -50,37 +81,28 @@ def infer_entropy_from_pdb(path: str, reverse: bool = False) -> Dict:
 
         entropy_scores = compute_ewcl_entropy(residues)
 
-        # ✅ Normalize entropy (Y)
-        min_score = min(entropy_scores)
-        max_score = max(entropy_scores)
-        normalized_scores = [
-            (s - min_score) / (max_score - min_score) if max_score > min_score else 0.5
-            for s in entropy_scores
-        ]
+        # Normalize using all methods
+        normalized_results = normalize_all_methods(entropy_scores, reverse=reverse)
 
-        results = []
-        for i, (res, raw, norm) in enumerate(zip(residues, entropy_scores, normalized_scores)):
+        # Add amino acid and residue metadata
+        for res, norm in zip(residues, normalized_results):
             try:
                 aa = three_to_one(res.resname)
             except Exception:
                 aa = "X"
 
-            score = 1.0 - norm if reverse else norm  # reverse entropy if needed
-            results.append({
-                "residue_id": int(res.id[1]),
+            norm.update({
                 "aa": aa,
-                "ewcl_score": round(score, 6),         # normalized (0–1), reverse if requested
-                "ewcl_score_raw": round(raw, 6),       # original entropy (e.g. 2.4–3.2)
                 "resi": int(res.id[1]),
                 "resiLabel": str(res.id[1])
             })
 
-        logger.info(f"✅ Successfully processed {len(results)} residues")
+        logger.info(f"✅ Successfully processed {len(normalized_results)} residues")
         return {
             "status": "success",
             "mode": "reverse" if reverse else "normal",
             "reverse": reverse,
-            "scores": results
+            "scores": normalized_results
         }
 
     except Exception as e:
