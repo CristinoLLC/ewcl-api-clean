@@ -33,16 +33,7 @@ def find_model_path():
 
 def load_model_safely(model_path):
     """Try to load model with different methods"""
-    # Try pickle first
-    try:
-        with open(model_path, "rb") as f:
-            model = pickle.load(f)
-        logging.info(f"✅ Loaded model using pickle from {model_path}")
-        return model
-    except Exception as pickle_error:
-        logging.warning(f"⚠️ Pickle loading failed: {pickle_error}")
-    
-    # Try joblib if available
+    # Try joblib first (since our model loads with joblib)
     if HAS_JOBLIB:
         try:
             model = joblib.load(model_path)
@@ -50,6 +41,15 @@ def load_model_safely(model_path):
             return model
         except Exception as joblib_error:
             logging.warning(f"⚠️ Joblib loading failed: {joblib_error}")
+    
+    # Try pickle as backup
+    try:
+        with open(model_path, "rb") as f:
+            model = pickle.load(f)
+        logging.info(f"✅ Loaded model using pickle from {model_path}")
+        return model
+    except Exception as pickle_error:
+        logging.warning(f"⚠️ Pickle loading failed: {pickle_error}")
     
     # Log file details for debugging
     try:
