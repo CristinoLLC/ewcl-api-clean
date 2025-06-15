@@ -5,6 +5,7 @@ import os
 
 from api.routes.analyze import analyze_file
 from api.routes.analyze_final import analyze_final
+from api.routes.analyze_pdb import analyze_pdb  # ← new line
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
@@ -46,3 +47,7 @@ async def analyze_file_endpoint(file: UploadFile = File(...)):
 @app.post("/analyze-final")
 async def analyze_final_endpoint(file: UploadFile = File(...)):
     return await analyze_final(file)
+
+@app.post("/analyze-pdb")
+async def analyze_pdb_endpoint(file: UploadFile = File(...)):
+    return await analyze_pdb(file)
