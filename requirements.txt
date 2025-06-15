@@ -1,9 +1,9 @@
 fastapi
-uvicorn[standard]
-biopython==1.85
-python-multipart
+uvicorn
+pandas
 numpy
-scipy
+scikit-learn
+biopython
+python-multipart
 scipy
 joblib
-pandas
