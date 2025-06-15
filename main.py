@@ -4,7 +4,6 @@ import logging
 import os
 
 from api.routes.analyze import analyze_file
-from api.routes.analyze_regressor import analyze_regression
 from api.routes.analyze_final import analyze_final
 
 app = FastAPI()
@@ -43,10 +42,6 @@ def health_check():
 @app.post("/analyze")
 async def analyze_file_endpoint(file: UploadFile = File(...)):
     return await analyze_file(file)
-
-@app.post("/analyze-regression")
-async def analyze_regression_endpoint(file: UploadFile = File(...)):
-    return await analyze_regression(file)
 
 @app.post("/analyze-final")
 async def analyze_final_endpoint(file: UploadFile = File(...)):
