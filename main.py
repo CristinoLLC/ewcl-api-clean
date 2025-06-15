@@ -2,10 +2,10 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
-from routes.analyze import analyze_file
-from routes.analyze_rev import analyze_reverse
-from routes.analyze_regressor import analyze_regression
-from routes.analyze_final import analyze_final
+from api.routes.analyze import analyze_file  # Updated path
+from api.routes.analyze_rev import analyze_reverse  # Updated path
+from api.routes.analyze_regressor import analyze_regression  # Updated path
+from api.routes.analyze_final import analyze_final  # Updated path
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
