@@ -7,23 +7,52 @@ import shutil
 import numpy as np
 import logging
 
-# Load the regressor model at startup
-try:
-    model = joblib.load("models/ewcl_regressor_v1.pkl")
-    logging.info("✅ Loaded EWCL Regressor model (ewcl_regressor_v1.pkl)")
-except Exception as e:
-    logging.error(f"❌ Error loading EWCL Regressor model: {e}")
-    model = None
+# More robust path resolution
+def find_regressor_model_path():
+    possible_paths = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../models/ewcl_regressor_v1.pkl")),
+        os.path.abspath("models/ewcl_regressor_v1.pkl"),
+        os.path.abspath(os.path.join(os.getcwd(), "models/ewcl_regressor_v1.pkl")),
+        "/opt/render/project/src/models/ewcl_regressor_v1.pkl"
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            logging.info(f"✅ Found regressor model at: {path}")
+            return path
+        else:
+            logging.debug(f"❌ Regressor model not found at: {path}")
+    
+    logging.error("❌ Regressor model file not found in any expected location")
+    return None
+
+# Load the regressor model at startup with better error handling
+model = None
+MODEL_PATH = find_regressor_model_path()
+
+if MODEL_PATH:
+    try:
+        model = joblib.load(MODEL_PATH)
+        logging.info(f"✅ Loaded EWCL Regressor model from {MODEL_PATH}")
+    except Exception as e:
+        logging.error(f"❌ Error loading EWCL Regressor model: {e}")
+        logging.info("ℹ️ Regressor model unavailable due to compatibility issues")
+        model = None
+else:
+    logging.error("❌ No valid regressor model path found")
 
 async def analyze_regression(file: UploadFile = File(...)):
     if model is None:
         logging.error("❌ Regressor model not loaded. Cannot process request.")
-        return {"status": "error", "message": "Regressor model not loaded", "results": []}
+        return {
+            "status": "error", 
+            "message": "Regressor model temporarily unavailable due to compatibility issues. Please use /analyze or /analyze-final endpoints instead.", 
+            "results": []
+        }
 
     tmp_path = ""
     try:
         suffix = os.path.splitext(file.filename)[-1]
-        # Ensure the uploaded file is a CSV for this endpoint
         if suffix.lower() != ".csv":
             return {"status": "error", "message": "Invalid file type. Please upload a CSV file.", "results": []}
 
@@ -33,7 +62,6 @@ async def analyze_regression(file: UploadFile = File(...)):
 
         logging.info(f"📂 Processing CSV for regression: {file.filename}")
         df = pd.read_csv(tmp_path)
-        # Ensure required columns for feature extraction are present, or handle missing robustly
         features = df.drop(columns=["resi", "plddt", "b_factor"], errors="ignore").values
         predictions = model.predict(features)
         
