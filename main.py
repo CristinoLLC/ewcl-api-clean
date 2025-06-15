@@ -12,8 +12,12 @@ from entropy_collapse_model_reverse import infer_entropy_from_pdb as infer_entro
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 
-# ✅ Allow CORS from all origins
-origins = ["*"]
+# ✅ Allow CORS from specific origins
+origins = [
+    "http://localhost:3000",
+    "https://ewclx.com",
+    "https://www.ewclx.com"
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +35,7 @@ def root():
 def health_check():
     return {"status": "ok", "message": "Protein Collapse Analysis API is running"}
 
+# Route using entropy_collapse_model's infer_entropy_from_pdb
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
     try:
@@ -58,6 +63,7 @@ async def analyze_file(file: UploadFile = File(...)):
             "results": [],
         }
 
+# Route using entropy_collapse_model_reverse's infer_entropy_from_pdb (aliased as infer_entropy_reverse)
 @app.post("/analyze-rev")
 async def analyze_reverse(file: UploadFile = File(...)):
     try:
