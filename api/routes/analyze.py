@@ -1,16 +1,26 @@
 import pickle
+import os
 from fastapi import UploadFile, File
 import pandas as pd
 import io
 import logging
 
+# Dynamically construct the absolute path to the model file
+MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../models/ewcl_final_model.pkl"))
+
+# Check if the model file exists
+if os.path.exists(MODEL_PATH):
+    logging.info(f"✅ Model file detected at {MODEL_PATH}")
+else:
+    logging.error(f"❌ Model file not found at {MODEL_PATH}")
+
 # Load the final working model
 try:
-    with open("models/ewcl_final_model.pkl", "rb") as f:
+    with open(MODEL_PATH, "rb") as f:
         model = pickle.load(f)
-    logging.info("✅ Loaded final model (ewcl_final_model.pkl)")
+    logging.info(f"✅ Loaded final model from {MODEL_PATH}")
 except Exception as e:
-    logging.error("❌ Error loading final model: %s", e)
+    logging.error(f"❌ Error loading final model: {e}")
     model = None
 
 async def analyze_file(file: UploadFile = File(...)):

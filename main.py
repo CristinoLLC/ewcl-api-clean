@@ -1,14 +1,21 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import os
 
-from api.routes.analyze import analyze_file  # Updated path
-from api.routes.analyze_rev import analyze_reverse  # Updated path
-from api.routes.analyze_regressor import analyze_regression  # Updated path
-from api.routes.analyze_final import analyze_final  # Updated path
+from api.routes.analyze import analyze_file
+from api.routes.analyze_regressor import analyze_regression
+from api.routes.analyze_final import analyze_final
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
+
+# Check if models directory exists
+MODELS_DIR = os.path.abspath("models")
+if os.path.exists(MODELS_DIR):
+    logging.info(f"✅ Models directory detected at {MODELS_DIR}")
+else:
+    logging.error(f"❌ Models directory not found at {MODELS_DIR}")
 
 # ✅ Allow CORS from specific origins
 origins = [
@@ -33,15 +40,9 @@ def root():
 def health_check():
     return {"status": "ok", "message": "Protein Collapse Analysis API is running"}
 
-# Route using the new analyze_file handler
 @app.post("/analyze")
 async def analyze_file_endpoint(file: UploadFile = File(...)):
     return await analyze_file(file)
-
-# Route using the new analyze_reverse handler
-@app.post("/analyze-rev")
-async def analyze_rev_endpoint(file: UploadFile = File(...)):
-    return await analyze_reverse(file)
 
 @app.post("/analyze-regression")
 async def analyze_regression_endpoint(file: UploadFile = File(...)):
