@@ -2,8 +2,10 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
-from api.routes.analyze import analyze_file
-from api.routes.analyze_rev import analyze_reverse
+from routes.analyze import analyze_file
+from routes.analyze_rev import analyze_reverse
+from routes.analyze_regressor import analyze_regression
+from routes.analyze_final import analyze_final
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
@@ -40,3 +42,11 @@ async def analyze_file_endpoint(file: UploadFile = File(...)):
 @app.post("/analyze-rev")
 async def analyze_rev_endpoint(file: UploadFile = File(...)):
     return await analyze_reverse(file)
+
+@app.post("/analyze-regression")
+async def analyze_regression_endpoint(file: UploadFile = File(...)):
+    return await analyze_regression(file)
+
+@app.post("/analyze-final")
+async def analyze_final_endpoint(file: UploadFile = File(...)):
+    return await analyze_final(file)
