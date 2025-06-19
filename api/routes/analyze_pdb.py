@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi.responses import JSONResponse
 from models.collapse_likelihood import CollapseLikelihood
 from Bio.PDB import PDBParser
 from datetime import datetime
@@ -39,26 +40,26 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True) -> dict:
         if not plddt_scores:
             raise HTTPException(status_code=400, detail="Invalid PDB: No CA atoms found")
         
-        # === Compute raw CL scores ===
+        # === Predict collapse likelihood ===
         cl_scores = cl_model.score(np.array(plddt_scores))
         
-        # === Normalize to [0, 1] per-protein if requested ===
+        # === Normalize if requested ===
         if normalize:
-            min_score = cl_scores.min()
-            max_score = cl_scores.max()
+            min_score = np.min(cl_scores)
+            max_score = np.max(cl_scores)
             cl_scores_norm = (cl_scores - min_score) / (max_score - min_score + 1e-8)  # avoid div by 0
         else:
-            cl_scores_norm = cl_scores  # return raw values unchanged
+            cl_scores_norm = cl_scores
         
-        results = [
-            {
+        # === Build response ===
+        results = []
+        for i, (cl, plddt) in enumerate(zip(cl_scores_norm, plddt_scores)):
+            results.append({
                 "residue_id": i + 1,
-                "cl": round(score, 6),  # normalized or raw based on toggle
-                "plddt": round(plddt_scores[i], 6),
-                "b_factor": round(plddt_scores[i], 6)
-            }
-            for i, score in enumerate(cl_scores_norm)
-        ]
+                "cl": round(float(cl), 6),
+                "plddt": round(float(plddt), 6),
+                "b_factor": round(float(plddt), 6)
+            })
         
         return {
             "model": "CollapseLikelihood",
@@ -80,14 +81,20 @@ async def analyze_pdb(
     normalize: bool = Query(default=True, description="Normalize CL scores to [0, 1] range")
 ):
     """
-    Upload PDB file for EWCL analysis (backward-compatible multipart endpoint)
+    Upload PDB file for EWCL analysis with optional normalization
+    Pass ?normalize=true for [0,1] normalization, ?normalize=false for raw scores
     """
     try:
         pdb_bytes = await file.read()
         pdb_str = pdb_bytes.decode()
-        return run_ewcl_analysis(pdb_str, normalize)
+        result = run_ewcl_analysis(pdb_str, normalize)
+        return JSONResponse(content=result)
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid PDB: File encoding error")
+        return JSONResponse(status_code=400, content={"error": "Invalid PDB: File encoding error"})
+    except HTTPException as e:
+        return JSONResponse(status_code=e.status_code, content={"error": e.detail})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @router.post("/analyze-pdb-json")
 async def analyze_pdb_json(input_data: PDBJSONInput):
