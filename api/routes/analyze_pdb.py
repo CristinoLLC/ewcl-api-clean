@@ -28,7 +28,12 @@ async def analyze_pdb(file: UploadFile = File(...)):
     cl_scores = cl_model.score(np.array(plddt_scores))
 
     results = [
-        {"residue_id": i + 1, "cl_score": round(score, 4)}
+        {
+            "residue_id": i + 1,
+            "cl": round(score, 4),
+            "plddt": plddt_scores[i],
+            "b_factor": plddt_scores[i]
+        }
         for i, score in enumerate(cl_scores)
     ]
 

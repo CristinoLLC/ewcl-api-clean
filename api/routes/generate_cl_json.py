@@ -29,7 +29,12 @@ async def generate_cl_json(file: UploadFile = File(...)):
         "lambda": cl_model.lambda_,
         "generated": datetime.utcnow().isoformat() + "Z",
         "scores": [
-            {"residue_id": i + 1, "cl": round(score, 4)}
+            {
+                "residue_id": i + 1,
+                "cl": round(score, 4),
+                "plddt": plddt_scores[i],
+                "b_factor": plddt_scores[i]
+            }
             for i, score in enumerate(cl_scores)
         ]
     }
