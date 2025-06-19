@@ -1,46 +1,42 @@
 import os, shutil, json
 from tempfile import NamedTemporaryFile
-from fastapi import UploadFile, File
+from fastapi import APIRouter, UploadFile, File
+from models.collapse_likelihood import CollapseLikelihood
+from Bio.PDB import PDBParser
+from datetime import datetime
+import pandas as pd
+import numpy as np
+import io
 import joblib
 import logging
 
-# 👉  import your entropy function
-#    (change the path to wherever compute_ewcl_scores lives)
-# from ewcl_toolkit.ewcl_core import compute_ewcl_scores
+router = APIRouter()
+cl_model = CollapseLikelihood(lambda_=3.0)
+parser = PDBParser(QUIET=True)
 
-# 🔒  load the final EWCL model once at startup
-try:
-    MODEL = joblib.load("models/ewcl_final_model.pkl")
-    logging.info("✅ EWCL final model loaded for /analyze-pdb")
-except Exception as e:
-    MODEL = None
-    logging.error(f"❌ Could not load model: {e}")
-
+@router.post("/analyze-pdb")
 async def analyze_pdb(file: UploadFile = File(...)):
-    """
-    Accepts a raw .pdb upload, runs EWCL, and returns per-residue scores.
-    """
-    suffix = os.path.splitext(file.filename)[-1] or ".pdb"
-    with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
+    pdb_bytes = await file.read()
+    structure = parser.get_structure("protein", io.StringIO(pdb_bytes.decode()))
 
-    try:
-        if MODEL is None:
-            raise RuntimeError("EWCL model not loaded on server")
+    plddt_scores = []
+    for model in structure:
+        for chain in model:
+            for residue in chain:
+                if "CA" in residue:
+                    plddt_scores.append(residue["CA"].get_bfactor())
 
-        # TODO: Replace this with your actual compute_ewcl_scores function
-        # result_dict = compute_ewcl_scores(tmp_path, MODEL)
-        
-        # Placeholder return for now
-        return {
-            "status": "ok", 
-            "message": "PDB analysis endpoint ready - awaiting ewcl_toolkit integration",
-            "filename": file.filename
-        }
+    cl_scores = cl_model.score(np.array(plddt_scores))
 
-    except Exception as e:
-        logging.exception("❌ Error during PDB analysis")
-        return {"status": "error", "message": str(e), "results": []}
-    finally:
-        os.remove(tmp_path)  # always cleanup temp file
+    results = [
+        {"residue_id": i + 1, "cl_score": round(score, 4)}
+        for i, score in enumerate(cl_scores)
+    ]
+
+    return {
+        "model": "CollapseLikelihood",
+        "lambda": cl_model.lambda_,
+        "generated": datetime.utcnow().isoformat() + "Z",
+        "n_residues": len(results),
+        "results": results
+    }

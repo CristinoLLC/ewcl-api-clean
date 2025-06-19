@@ -1,8 +1,6 @@
 fastapi
-uvicorn
-pandas
-numpy>=1.21.0,<2.0.0
-scikit-learn==1.6.1
+uvicorn[standard]
 biopython
+pandas
+numpy
 python-multipart
-joblib
