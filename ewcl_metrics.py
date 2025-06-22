@@ -28,4 +28,9 @@ def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15):
     plddt = np.array([d["plddt"] for d in data])
     
     # Debug logging for first few values
-    logging.info(f"Spearman inputs - CL
+    logging.info(f"Spearman inputs - CL: {cl[:5]}, pLDDT: {plddt[:5]}")
+
+    # Pearson correlation
+    pearson = np.corrcoef(cl, plddt)[0, 1]
+
+    # Spearman correlation
