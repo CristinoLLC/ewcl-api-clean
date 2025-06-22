@@ -109,4 +109,21 @@ def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15, dis
         auc_kendall_results = compute_auc_kendall(disorder_labels, cl)
         metrics_result.update(auc_kendall_results)
     
+    # Compute AUC using pseudo-labels based on pLDDT ≤ 50
+    try:
+        if HAS_SKLEARN:
+            # Create binary labels: 1 = disordered (plddt <= 50), 0 = ordered
+            pseudo_labels = (plddt <= 50).astype(int)
+            if len(set(pseudo_labels)) > 1:  # Avoid constant label issue
+                auc_pseudo = roc_auc_score(pseudo_labels, cl)
+                metrics_result["auc_pseudo_plddt"] = round(float(auc_pseudo), 3)
+            else:
+                metrics_result["auc_pseudo_plddt"] = None
+                logging.warning("All residues have same pseudo-label (pLDDT threshold)")
+        else:
+            metrics_result["auc_pseudo_plddt"] = None
+    except Exception as e:
+        metrics_result["auc_pseudo_plddt"] = None
+        logging.warning(f"Pseudo-label AUC computation failed: {e}")
+    
     return metrics_result
