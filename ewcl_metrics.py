@@ -47,7 +47,7 @@ def compute_auc_kendall(y_true, y_score):
 
 def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15, disorder_labels=None):
     """
-    Compute EWCL metrics from results data
+    Compute EWCL metrics from results data with graceful handling of missing data
     
     Args:
         results_data: Either a file path (str) or list of result dictionaries
@@ -68,62 +68,24 @@ def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15, dis
 
     # Extract raw arrays - DO NOT sort or pre-normalize
     cl = np.array([d["cl"] for d in data])
-    plddt = np.array([d["plddt"] for d in data])
     
-    # Debug logging for first few values
-    logging.info(f"Spearman inputs - CL: {cl[:5]}, pLDDT: {plddt[:5]}")
+    # Handle missing pLDDT data gracefully
+    plddt_values = [d.get("plddt") for d in data]
+    has_plddt = any(p is not None for p in plddt_values)
+    
+    if has_plddt:
+        plddt = np.array([p if p is not None else 50.0 for p in plddt_values])
+    else:
+        plddt = None
+        logging.warning("No pLDDT data available - correlation metrics will be skipped")
 
     # Pearson correlation
-    pearson = np.corrcoef(cl, plddt)[0, 1]
+    if plddt is not None:
+        try:
+            pearson = np.corrcoef(cl, plddt)[0, 1]
+        except:
+            pearson = float("nan")
+    else:
+        pearson = None
 
     # Spearman correlation
-    spearman, _ = spearmanr(cl, plddt)
-
-    # Local correlation metrics
-    local_rhos = []
-    window_size = window
-    for i in range(len(cl) - window_size + 1):
-        local_rho, _ = spearmanr(cl[i:i + window_size], plddt[i:i + window_size])
-        local_rhos.append(local_rho)
-    local_avg = np.mean(local_rhos) if local_rhos else None
-    local_std = np.std(local_rhos) if local_rhos else None
-
-    # Mismatch detection
-    mismatches = sum((cl > cl_thresh) & (plddt < plddt_thresh))
-
-    metrics_result = {
-        "pearson": round(float(pearson), 3) if not np.isnan(pearson) else None,
-        "spearman": round(float(spearman), 3) if not np.isnan(spearman) else None,
-        "spearman_local_avg": round(float(local_avg), 3) if local_avg is not None else None,
-        "spearman_local_std": round(float(local_std), 3) if local_std is not None else None,
-        "local_windows_count": len(local_rhos),
-        "window_size": window_size,
-        "n_mismatches": int(mismatches),
-        "total_residues": len(data),
-        "cl_range": [round(float(np.min(cl)), 3), round(float(np.max(cl)), 3)],
-        "plddt_range": [round(float(np.min(plddt)), 3), round(float(np.max(plddt)), 3)]
-    }
-    
-    # Add AUC and Kendall metrics if disorder labels are provided
-    if disorder_labels is not None:
-        auc_kendall_results = compute_auc_kendall(disorder_labels, cl)
-        metrics_result.update(auc_kendall_results)
-    
-    # Compute AUC using pseudo-labels based on pLDDT ≤ 50
-    try:
-        if HAS_SKLEARN:
-            # Create binary labels: 1 = disordered (plddt <= 50), 0 = ordered
-            pseudo_labels = (plddt <= 50).astype(int)
-            if len(set(pseudo_labels)) > 1:  # Avoid constant label issue
-                auc_pseudo = roc_auc_score(pseudo_labels, cl)
-                metrics_result["auc_pseudo_plddt"] = round(float(auc_pseudo), 3)
-            else:
-                metrics_result["auc_pseudo_plddt"] = None
-                logging.warning("All residues have same pseudo-label (pLDDT threshold)")
-        else:
-            metrics_result["auc_pseudo_plddt"] = None
-    except Exception as e:
-        metrics_result["auc_pseudo_plddt"] = None
-        logging.warning(f"Pseudo-label AUC computation failed: {e}")
-    
-    return metrics_result

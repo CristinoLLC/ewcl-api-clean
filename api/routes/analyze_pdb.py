@@ -7,6 +7,7 @@ from pydantic import BaseModel
 import pandas as pd
 import numpy as np
 import io
+import logging
 from ewcl_metrics import compute_metrics
 from pdf_generator import create_pdf_report
 
@@ -33,15 +34,27 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool =
     try:
         structure = parser.get_structure("protein", io.StringIO(pdb_str))
         
+        # Extract pLDDT scores with graceful fallback
         plddt_scores = []
+        has_bfactor_data = False
+        
         for model in structure:
             for chain in model:
                 for residue in chain:
                     if "CA" in residue:
-                        plddt_scores.append(residue["CA"].get_bfactor())
+                        try:
+                            bfactor = residue["CA"].get_bfactor()
+                            if bfactor > 0:  # Valid B-factor/pLDDT score
+                                has_bfactor_data = True
+                            plddt_scores.append(bfactor)
+                        except:
+                            # Fallback for missing B-factor data
+                            plddt_scores.append(50.0)  # Default neutral score
         
         if not plddt_scores:
             raise HTTPException(status_code=400, detail="Invalid PDB: No CA atoms found")
+        
+        logging.info(f"✅ Extracted {len(plddt_scores)} residues, B-factor data available: {has_bfactor_data}")
         
         # === Predict collapse likelihood ===
         cl_scores_raw = cl_model.score(np.array(plddt_scores))  # Raw CL scores
@@ -56,31 +69,45 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool =
         
         # === Build response with both raw and scaled scores ===
         results = []
-        for i, (cl_raw, cl_norm, plddt) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores)):
+        for i, (raw_cl, norm_cl, plddt) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores)):
             results.append({
                 "residue_id": i + 1,
-                "cl_raw": round(float(cl_raw), 6),
-                "cl_normalized": round(float(cl_norm), 6),
-                "plddt": round(float(plddt), 6),
-                "b_factor": round(float(plddt), 6)
+                "cl": round(float(norm_cl), 6),      # scaled 0-1 collapse likelihood
+                "raw_cl": round(float(raw_cl), 6),   # un-scaled EWCL
+                "plddt": round(float(plddt), 6) if has_bfactor_data else None,
+                "b_factor": round(float(plddt), 6) if has_bfactor_data else None
             })
         
-        # === Compute metrics ===
-        metrics = compute_metrics(results)
+        # === Compute metrics with graceful handling ===
+        try:
+            metrics = compute_metrics(results, disorder_labels=None)
+            # Tag metrics that may be invalid due to missing data
+            if not has_bfactor_data:
+                metrics.update({
+                    "pearson": None,
+                    "spearman": None,
+                    "data_warning": "B-factor/pLDDT data missing - correlation metrics unavailable"
+                })
+        except Exception as e:
+            logging.warning(f"Metrics computation failed: {e}")
+            metrics = {"error": "Metrics computation failed", "data_warning": str(e)}
         
         return {
             "model": "CollapseLikelihood",
             "lambda": cl_model.lambda_,
             "normalized": normalize,
             "use_raw_ewcl": use_raw_ewcl,
+            "has_bfactor_data": has_bfactor_data,
             "generated": datetime.utcnow().isoformat() + "Z",
             "n_residues": len(results),
             "results": results,
             "metrics": metrics
         }
+        
     except HTTPException:
         raise
     except Exception as e:
+        logging.exception("❌ PDB processing failed")
         raise HTTPException(status_code=400, detail=f"Invalid PDB: Failed to parse - {str(e)}")
 
 @router.post("/analyze-pdb")
@@ -91,19 +118,28 @@ async def analyze_pdb(
 ):
     """
     Upload PDB file for EWCL analysis with optional normalization and raw score mode
-    Pass ?normalize=true for [0,1] normalization, ?normalize=false for raw scores
     """
     try:
+        # Add logging for debugging
+        logging.info(f"📂 Processing file: {file.filename}")
+        
         pdb_bytes = await file.read()
         pdb_str = pdb_bytes.decode()
+        
+        logging.info("✅ File received and decoded successfully")
+        
         result = run_ewcl_analysis(pdb_str, normalize, use_raw_ewcl)
         return JSONResponse(content=result)
+        
     except UnicodeDecodeError:
+        logging.error("❌ File encoding error")
         return JSONResponse(status_code=400, content={"error": "Invalid PDB: File encoding error"})
     except HTTPException as e:
-        return JSONResponse(status_code=e.status_code, content={"error": e.detail})
+        logging.error(f"❌ HTTP Exception: {e.detail}")
+        raise
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        logging.exception("❌ Unexpected error during PDB analysis")
+        return JSONResponse(status_code=500, content={"error": f"Analysis failed: {str(e)}"})
 
 @router.post("/analyze-pdb-json")
 async def analyze_pdb_json(input_data: PDBJSONInput):
