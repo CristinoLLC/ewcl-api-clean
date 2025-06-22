@@ -16,10 +16,11 @@ parser = PDBParser(QUIET=True)
 async def generate_cl_json(
     file: UploadFile = File(...),
     normalize: bool = Query(default=True, description="Normalize CL scores to [0, 1] range"),
+    use_raw_ewcl: bool = Query(default=False, description="Use raw EWCL scores for metrics computation"),
     disorder_labels: str = Query(default=None, description="Optional comma-separated binary labels for disorder regions")
 ):
     """
-    Generate CL JSON from PDB upload with optional normalization and disorder labels
+    Generate CL JSON from PDB upload with optional normalization, raw EWCL scores, and disorder labels
     """
     try:
         pdb_bytes = await file.read()
@@ -43,22 +44,23 @@ async def generate_cl_json(
                         plddt_scores.append(bfactor)
 
         # === Predict collapse likelihood ===
-        cl_scores = cl_model.score(np.array(plddt_scores))
+        cl_scores_raw = cl_model.score(np.array(plddt_scores))
         
         # === Normalize if requested ===
         if normalize:
-            min_score = np.min(cl_scores)
-            max_score = np.max(cl_scores)
-            cl_scores_norm = (cl_scores - min_score) / (max_score - min_score + 1e-8)
+            min_score = np.min(cl_scores_raw)
+            max_score = np.max(cl_scores_raw)
+            cl_scores_normalized = (cl_scores_raw - min_score) / (max_score - min_score + 1e-8)
         else:
-            cl_scores_norm = cl_scores
+            cl_scores_normalized = cl_scores_raw
 
-        # === Build response ===
+        # === Build response with both raw and scaled scores ===
         scores = []
-        for i, (cl, plddt) in enumerate(zip(cl_scores_norm, plddt_scores)):
+        for i, (raw_cl, norm_cl, plddt) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores)):
             scores.append({
                 "residue_id": i + 1,
-                "cl": round(float(cl), 6),
+                "cl": round(float(norm_cl), 6),      # scaled 0-1 collapse likelihood  
+                "raw_cl": round(float(raw_cl), 6),   # un-scaled EWCL
                 "plddt": round(float(plddt), 6),
                 "b_factor": round(float(plddt), 6)
             })
@@ -82,6 +84,7 @@ async def generate_cl_json(
             "model": "CollapseLikelihood",
             "lambda": cl_model.lambda_,
             "normalized": normalize,
+            "use_raw_ewcl": use_raw_ewcl,
             "generated": datetime.utcnow().isoformat() + "Z",
             "scores": scores,
             "metrics": metrics
