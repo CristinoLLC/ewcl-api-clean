@@ -6,6 +6,7 @@ from datetime import datetime
 import numpy as np
 import io
 from ewcl_metrics import compute_metrics
+import logging
 
 router = APIRouter()
 cl_model = CollapseLikelihood(lambda_=3.0)
@@ -14,11 +15,11 @@ parser = PDBParser(QUIET=True)
 @router.post("/generate-cl-json")
 async def generate_cl_json(
     file: UploadFile = File(...),
-    normalize: bool = Query(default=True, description="Normalize CL scores to [0, 1] range")
+    normalize: bool = Query(default=True, description="Normalize CL scores to [0, 1] range"),
+    disorder_labels: str = Query(default=None, description="Optional comma-separated binary labels for disorder regions")
 ):
     """
-    Generate CL JSON from PDB upload with optional normalization
-    Pass ?normalize=true for [0,1] normalization, ?normalize=false for raw scores
+    Generate CL JSON from PDB upload with optional normalization and disorder labels
     """
     try:
         pdb_bytes = await file.read()
@@ -63,7 +64,19 @@ async def generate_cl_json(
             })
 
         # === Compute metrics ===
-        metrics = compute_metrics(scores)
+        # Parse disorder labels if provided
+        parsed_labels = None
+        if disorder_labels:
+            try:
+                parsed_labels = [int(x.strip()) for x in disorder_labels.split(',')]
+                if len(parsed_labels) != len(scores):
+                    logging.warning(f"Label count mismatch: {len(parsed_labels)} labels vs {len(scores)} residues")
+                    parsed_labels = None
+            except ValueError:
+                logging.warning("Invalid disorder labels format - expected comma-separated 0/1 values")
+                parsed_labels = None
+        
+        metrics = compute_metrics(scores, disorder_labels=parsed_labels)
 
         response = {
             "model": "CollapseLikelihood",
