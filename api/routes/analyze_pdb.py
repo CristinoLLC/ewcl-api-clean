@@ -50,7 +50,7 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool =
         if normalize:
             min_score = np.min(cl_scores_raw)
             max_score = np.max(cl_scores_raw)
-            cl_scores_normalized = (cl_scores_raw - min_score) / (max_score - min_score + 1e-8)  # avoid div by 0
+            cl_scores_normalized = (cl_scores_raw - min_score) / (max_score - min_score + 1e-8)
         else:
             cl_scores_normalized = cl_scores_raw
         
