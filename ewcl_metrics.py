@@ -1,6 +1,7 @@
 import numpy as np
 import json
 from scipy.stats import spearmanr
+import logging
 
 def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15):
     """
@@ -22,33 +23,9 @@ def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15):
     else:
         data = results_data
 
+    # Extract raw arrays - DO NOT sort or pre-normalize
     cl = np.array([d["cl"] for d in data])
     plddt = np.array([d["plddt"] for d in data])
-
-    # Pearson correlation
-    pearson = np.corrcoef(cl, plddt)[0, 1]
-
-    # Spearman correlation
-    spearman = spearmanr(cl, plddt).correlation
-
-    # Local Spearman (sliding window)
-    local_rs = []
-    for i in range(len(cl) - window + 1):
-        r = spearmanr(cl[i:i+window], plddt[i:i+window]).correlation
-        if not np.isnan(r):
-            local_rs.append(r)
-
-    local_mean = np.mean(local_rs) if local_rs else 0.0
-    local_sd = np.std(local_rs) if local_rs else 0.0
-
-    # Mismatches: High CL + High pLDDT
-    mismatches = sum((cl >= cl_thresh) & (plddt >= plddt_thresh))
-
-    return {
-        "pearson": round(float(pearson), 3) if not np.isnan(pearson) else 0.0,
-        "spearman": round(float(spearman), 3) if not np.isnan(spearman) else 0.0,
-        "local_mean": round(float(local_mean), 3),
-        "local_sd": round(float(local_sd), 3),
-        "n_mismatches": int(mismatches),
-        "total_residues": len(data)
-    }
+    
+    # Debug logging for first few values
+    logging.info(f"Spearman inputs - CL
