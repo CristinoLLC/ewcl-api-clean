@@ -17,11 +17,20 @@ class AnalysisMetrics(BaseModel):
     n_mismatches: Optional[int] = None
     total_residues: Optional[int] = None
 
+class EWCLRequest(BaseModel):
+    pdb_string: str
+    threshold: Optional[float] = 0.609
+    mode: Optional[str] = "collapse"  # "collapse" or "reverse"
+    normalize: Optional[bool] = True
+    use_raw_ewcl: Optional[bool] = False
+
 class AnalysisResponse(BaseModel):
     model: str
-    lambda_: float = None
+    lambda_: Optional[float] = None
     normalized: bool
     use_raw_ewcl: bool
+    mode: str
+    interpretation: str
     has_valid_bfactors: bool
     generated: str
     n_residues: int

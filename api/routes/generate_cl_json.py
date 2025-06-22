@@ -17,10 +17,11 @@ async def generate_cl_json(
     file: UploadFile = File(...),
     normalize: bool = Query(default=True, description="Normalize CL scores to [0, 1] range"),
     use_raw_ewcl: bool = Query(default=False, description="Use raw EWCL scores for metrics computation"),
+    mode: str = Query(default="collapse", description="Interpretation mode: 'collapse' or 'reverse'"),
     disorder_labels: str = Query(default=None, description="Optional comma-separated binary labels for disorder regions")
 ):
     """
-    Generate CL JSON from PDB upload with optional normalization, raw EWCL scores, and disorder labels
+    Generate CL JSON from PDB upload with optional normalization, raw EWCL scores, mode, and disorder labels
     """
     try:
         pdb_bytes = await file.read()
@@ -57,6 +58,12 @@ async def generate_cl_json(
 
         # === Predict collapse likelihood ===
         cl_scores_raw = cl_model.score(np.array(plddt_scores))
+        
+        # Apply mode interpretation
+        interpret_as_disorder = mode.lower() == "reverse"
+        if interpret_as_disorder:
+            # Reverse interpretation: high scores = disorder
+            cl_scores_raw = 1 - cl_scores_raw
         
         # === Normalize if requested ===
         if normalize:
@@ -107,6 +114,8 @@ async def generate_cl_json(
             "lambda": cl_model.lambda_,
             "normalized": normalize,
             "use_raw_ewcl": use_raw_ewcl,
+            "mode": mode.lower(),
+            "interpretation": "Reverse EWCL (Disorder)" if interpret_as_disorder else "Collapse Likelihood",
             "has_valid_bfactors": has_valid_bfactors,
             "generated": datetime.utcnow().isoformat() + "Z",
             "scores": scores,

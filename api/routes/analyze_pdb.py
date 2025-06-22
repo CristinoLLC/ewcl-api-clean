@@ -19,8 +19,9 @@ class PDBJSONInput(BaseModel):
     pdb_data: str
     normalize: bool = True
     use_raw_ewcl: bool = False
+    mode: str = "collapse"
 
-def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool = False) -> dict:
+def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool = False, mode: str = "collapse") -> dict:
     """
     Core EWCL analysis function that processes PDB string and returns results
     """
@@ -58,6 +59,12 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool =
         
         # === Predict collapse likelihood ===
         cl_scores_raw = cl_model.score(np.array(plddt_scores))  # Raw CL scores
+        
+        # Apply mode interpretation
+        interpret_as_disorder = mode.lower() == "reverse"
+        if interpret_as_disorder:
+            # Reverse interpretation: high scores = disorder
+            cl_scores_raw = 1 - cl_scores_raw
         
         # === Normalize if requested ===
         if normalize:
@@ -97,6 +104,8 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool =
             "lambda": cl_model.lambda_,
             "normalized": normalize,
             "use_raw_ewcl": use_raw_ewcl,
+            "mode": mode.lower(),
+            "interpretation": "Reverse EWCL (Disorder)" if interpret_as_disorder else "Collapse Likelihood",
             "has_bfactor_data": has_bfactor_data,
             "generated": datetime.utcnow().isoformat() + "Z",
             "n_residues": len(results),
@@ -114,10 +123,11 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True, use_raw_ewcl: bool =
 async def analyze_pdb(
     file: UploadFile = File(...),
     normalize: bool = Query(default=True, description="Normalize CL scores to [0, 1] range"),
-    use_raw_ewcl: bool = Query(default=False, description="Use raw EWCL scores for metrics computation")
+    use_raw_ewcl: bool = Query(default=False, description="Use raw EWCL scores for metrics computation"),
+    mode: str = Query(default="collapse", description="Interpretation mode: 'collapse' or 'reverse'")
 ):
     """
-    Upload PDB file for EWCL analysis with optional normalization and raw score mode
+    Upload PDB file for EWCL analysis with optional normalization, raw score mode, and interpretation mode
     """
     try:
         # Add logging for debugging
@@ -128,7 +138,7 @@ async def analyze_pdb(
         
         logging.info("✅ File received and decoded successfully")
         
-        result = run_ewcl_analysis(pdb_str, normalize, use_raw_ewcl)
+        result = run_ewcl_analysis(pdb_str, normalize, use_raw_ewcl, mode)
         return JSONResponse(content=result)
         
     except UnicodeDecodeError:
@@ -147,7 +157,7 @@ async def analyze_pdb_json(input_data: PDBJSONInput):
     Analyze PDB from JSON body (alternate route for JSON input)
     """
     try:
-        return run_ewcl_analysis(input_data.pdb_data, input_data.normalize, getattr(input_data, 'use_raw_ewcl', False))
+        return run_ewcl_analysis(input_data.pdb_data, input_data.normalize, input_data.use_raw_ewcl, input_data.mode)
     except HTTPException as e:
         return JSONResponse(status_code=e.status_code, content={"error": e.detail})
     except Exception as e:
