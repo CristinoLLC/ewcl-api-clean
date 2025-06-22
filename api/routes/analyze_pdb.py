@@ -7,6 +7,7 @@ from pydantic import BaseModel
 import pandas as pd
 import numpy as np
 import io
+from ewcl_metrics import compute_metrics
 
 router = APIRouter()
 cl_model = CollapseLikelihood(lambda_=3.0)
@@ -61,13 +62,17 @@ def run_ewcl_analysis(pdb_str: str, normalize: bool = True) -> dict:
                 "b_factor": round(float(plddt), 6)
             })
         
+        # === Compute metrics ===
+        metrics = compute_metrics(results)
+        
         return {
             "model": "CollapseLikelihood",
             "lambda": cl_model.lambda_,
             "normalized": normalize,
             "generated": datetime.utcnow().isoformat() + "Z",
             "n_residues": len(results),
-            "results": results
+            "results": results,
+            "metrics": metrics
         }
         
     except HTTPException:

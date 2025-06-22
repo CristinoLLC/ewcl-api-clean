@@ -5,6 +5,7 @@ from Bio.PDB import PDBParser
 from datetime import datetime
 import numpy as np
 import io
+from ewcl_metrics import compute_metrics
 
 router = APIRouter()
 cl_model = CollapseLikelihood(lambda_=3.0)
@@ -61,12 +62,16 @@ async def generate_cl_json(
                 "b_factor": round(float(plddt), 6)
             })
 
+        # === Compute metrics ===
+        metrics = compute_metrics(scores)
+
         response = {
             "model": "CollapseLikelihood",
             "lambda": cl_model.lambda_,
             "normalized": normalize,
             "generated": datetime.utcnow().isoformat() + "Z",
-            "scores": scores
+            "scores": scores,
+            "metrics": metrics
         }
 
         return JSONResponse(content=response)
