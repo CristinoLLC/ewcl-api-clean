@@ -143,6 +143,11 @@ async def generate_cl_json(
                     
                     max_diff = max(d[1] for d in diffs) if diffs else 0
                     
+                    # Backend warning for high disagreement
+                    if max_diff > 0.6:
+                        logging.warning(f"⚠️ High CL vs Reverse-CL disagreement: max_diff = {max_diff:.3f}")
+                        print(f"⚠️ High CL vs Reverse-CL disagreement: max_diff = {max_diff:.3f}")
+                    
                     # Get top 5 outliers with strongest disagreement
                     top_outliers = sorted(diffs, key=lambda x: x[1], reverse=True)[:5]
                     top_outliers_data = [
@@ -158,7 +163,8 @@ async def generate_cl_json(
                     reverse_comparison = {
                         "max_difference": round(max_diff, 3),
                         "mean_difference": round(sum(d[1] for d in diffs) / len(diffs), 3),
-                        "top_outliers": top_outliers_data
+                        "top_outliers": top_outliers_data,
+                        "high_disagreement_warning": max_diff > 0.6  # Flag for frontend
                     }
                     
                     # Log server-side analysis
