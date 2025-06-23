@@ -7,8 +7,9 @@ from datetime import datetime
 import numpy as np
 import io
 from ewcl_metrics import compute_metrics
-from correlation_metrics import compute_correlation_metrics
+from correlation_metrics import compute_correlation_metrics_cleaned
 import logging
+import pandas as pd
 
 router = APIRouter()
 cl_model = CollapseLikelihood(lambda_=3.0)
@@ -93,17 +94,23 @@ async def generate_cl_json(
         # === Build response with both raw and scaled scores ===
         scores = []
         for i, (raw_cl, norm_cl, plddt, aa, chain_id) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores, amino_acids, chain_ids)):
+            # Calculate mismatch score properly
+            mismatch_score = None
+            if norm_cl is not None and plddt is not None and has_valid_bfactors:
+                if not (np.isnan(norm_cl) or np.isnan(plddt)):
+                    mismatch_score = round(abs(norm_cl - (plddt / 100.0)), 4)
+            
             scores.append({
                 "residue_id": i + 1,
-                "chain": chain_id,                  # chain identifier (A, B, C, etc.)
-                "aa": aa,                           # amino acid single letter code
-                "cl": round(float(norm_cl), 6),     # scaled 0-1 collapse likelihood  
-                "raw_cl": round(float(raw_cl), 6),  # un-scaled EWCL
-                "plddt": round(float(plddt), 6) if has_valid_bfactors else None,
-                "b_factor": round(float(plddt), 6) if has_valid_bfactors else None
+                "chain": chain_id if chain_id else "A",     # default to chain A if missing
+                "aa": aa if aa else "X",                    # default to X if unknown
+                "cl": round(float(norm_cl), 6),             # scaled 0-1 collapse likelihood  
+                "raw_cl": round(float(raw_cl), 6),          # un-scaled EWCL
+                "plddt": round(float(plddt), 6) if has_valid_bfactors and not np.isnan(plddt) else None,
+                "b_factor": round(float(plddt), 6) if has_valid_bfactors and not np.isnan(plddt) else None,
+                "mismatch_score": mismatch_score            # difference between CL and normalized pLDDT
             })
 
-        # === Compute metrics ===
         # Parse disorder labels if provided
         parsed_labels = None
         if disorder_labels:
@@ -125,8 +132,8 @@ async def generate_cl_json(
                 mode=mode.lower()
             )
             
-            # Additional focused correlation metrics
-            correlation_metrics = compute_correlation_metrics(scores)
+            # Additional focused correlation metrics with proper data cleaning
+            correlation_metrics = compute_correlation_metrics_cleaned(scores, mode.lower())
             
             # Combine metrics
             metrics["correlation_analysis"] = correlation_metrics
@@ -140,12 +147,13 @@ async def generate_cl_json(
         response = {
             "model": "CollapseLikelihood",
             "lambda": cl_model.lambda_,
+            "mode": mode.lower(),
             "normalized": normalize,
             "use_raw_ewcl": use_raw_ewcl,
-            "mode": mode.lower(),
             "interpretation": "Reverse EWCL (Disorder)" if interpret_as_disorder else "Collapse Likelihood",
             "has_valid_bfactors": has_valid_bfactors,
             "generated": datetime.utcnow().isoformat() + "Z",
+            "n_residues": len(scores),
             "scores": scores,
             "metrics": metrics
         }

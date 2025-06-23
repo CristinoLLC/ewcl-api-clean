@@ -2,6 +2,68 @@ import numpy as np
 from scipy.stats import pearsonr, spearmanr, kendalltau
 from sklearn.metrics import roc_auc_score
 import logging
+import pandas as pd
+
+def compute_correlation_metrics_cleaned(residues, mode="collapse"):
+    """
+    Compute correlation metrics with proper data cleaning to avoid misleading results
+    """
+    # Create DataFrame for easier data handling
+    data_rows = []
+    for res in residues:
+        try:
+            if res.get('cl') is not None and res.get('plddt') is not None:
+                data_rows.append({
+                    'cl': float(res['cl']),
+                    'plddt': float(res['plddt']),
+                    'b_factor': float(res['b_factor']) if res.get('b_factor') is not None else None
+                })
+        except (ValueError, TypeError):
+            continue
+    
+    if not data_rows:
+        return {"error": "No valid data for correlation analysis"}
+    
+    # Create DataFrame and drop missing values
+    df = pd.DataFrame(data_rows)
+    valid_df = df.dropna()
+    
+    metrics = {
+        "mode": mode,
+        "n_total_residues": len(residues),
+        "n_valid_for_correlation": len(valid_df),
+        "vs_pLDDT": {
+            "pearson": None,
+            "spearman": None,
+            "kendall": None
+        },
+        "vs_b_factor": {
+            "pearson": None,
+            "spearman": None,
+            "kendall": None
+        }
+    }
+    
+    # Compute correlations vs pLDDT if sufficient data
+    if len(valid_df) >= 3 and len(valid_df['cl'].unique()) > 1:
+        try:
+            metrics["vs_pLDDT"]["pearson"] = round(float(valid_df["cl"].corr(valid_df["plddt"], method="pearson")), 4)
+            metrics["vs_pLDDT"]["spearman"] = round(float(valid_df["cl"].corr(valid_df["plddt"], method="spearman")), 4)
+            metrics["vs_pLDDT"]["kendall"] = round(float(valid_df["cl"].corr(valid_df["plddt"], method="kendall")), 4)
+        except Exception as e:
+            logging.warning(f"pLDDT correlation failed: {e}")
+    
+    # Compute correlations vs B-factor if available
+    valid_bf_df = df.dropna(subset=['cl', 'b_factor'])
+    if len(valid_bf_df) >= 3 and len(valid_bf_df['cl'].unique()) > 1:
+        try:
+            metrics["vs_b_factor"]["pearson"] = round(float(valid_bf_df["cl"].corr(valid_bf_df["b_factor"], method="pearson")), 4)
+            metrics["vs_b_factor"]["spearman"] = round(float(valid_bf_df["cl"].corr(valid_bf_df["b_factor"], method="spearman")), 4)
+            metrics["vs_b_factor"]["kendall"] = round(float(valid_bf_df["cl"].corr(valid_bf_df["b_factor"], method="kendall")), 4)
+        except Exception as e:
+            logging.warning(f"B-factor correlation failed: {e}")
+    
+    return metrics
 
 def compute_correlation_metrics(residues, cl_key='cl', plddt_key='plddt', bfactor_key='b_factor'):
     """
