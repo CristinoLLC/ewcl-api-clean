@@ -37,9 +37,10 @@ async def generate_cl_json(
         
         structure = parser.get_structure("u", io.StringIO(pdb_str))
         
-        # Extract B-factors and amino acids with graceful fallback
+        # Extract B-factors, amino acids, and chain IDs with graceful fallback
         plddt_scores = []
         amino_acids = []
+        chain_ids = []
         has_valid_bfactors = False
         
         for model in structure:
@@ -59,6 +60,9 @@ async def generate_cl_json(
                         resname = residue.get_resname().title()  # e.g., 'Ala'
                         aa = protein_letters_3to1.get(resname, 'X')  # fallback to 'X' if unknown
                         amino_acids.append(aa)
+                        
+                        # Extract chain ID
+                        chain_ids.append(chain.id)
 
         if not plddt_scores:
             raise HTTPException(status_code=400, detail="Invalid PDB: No CA atoms found")
@@ -86,12 +90,13 @@ async def generate_cl_json(
 
         # === Build response with both raw and scaled scores ===
         scores = []
-        for i, (raw_cl, norm_cl, plddt, aa) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores, amino_acids)):
+        for i, (raw_cl, norm_cl, plddt, aa, chain_id) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores, amino_acids, chain_ids)):
             scores.append({
                 "residue_id": i + 1,
-                "aa": aa,                            # amino acid single letter code
-                "cl": round(float(norm_cl), 6),      # scaled 0-1 collapse likelihood  
-                "raw_cl": round(float(raw_cl), 6),   # un-scaled EWCL
+                "chain": chain_id,                  # chain identifier (A, B, C, etc.)
+                "aa": aa,                           # amino acid single letter code
+                "cl": round(float(norm_cl), 6),     # scaled 0-1 collapse likelihood  
+                "raw_cl": round(float(raw_cl), 6),  # un-scaled EWCL
                 "plddt": round(float(plddt), 6) if has_valid_bfactors else None,
                 "b_factor": round(float(plddt), 6) if has_valid_bfactors else None
             })
@@ -110,7 +115,7 @@ async def generate_cl_json(
                 parsed_labels = None
         
         try:
-            metrics = compute_metrics(scores, disorder_labels=parsed_labels)
+            metrics = compute_metrics(scores, disorder_labels=parsed_labels, mode=mode.lower())
             if not has_valid_bfactors:
                 metrics["data_warning"] = "B-factor data missing or invalid - correlation metrics may be unreliable"
         except Exception as e:
