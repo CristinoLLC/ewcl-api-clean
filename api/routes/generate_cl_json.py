@@ -129,6 +129,46 @@ async def generate_cl_json(
         # Log data quality metrics
         logging.info(f"📊 Data Quality - Total residues: {len(scores)}, Missing pLDDT: {missing_plddt_count}, Missing B-factor: {missing_bfactor_count}, Mismatch None: {mismatch_none_count}")
 
+        # === Compute Reverse vs Normal Comparison ===
+        reverse_comparison = None
+        if mode.lower() == "collapse":  # Only compute for normal mode
+            try:
+                # Extract CL scores for comparison
+                cl_values = [score["cl"] for score in scores if score["cl"] is not None]
+                
+                if cl_values:
+                    # Compute reverse scores (1 - cl)
+                    reverse_scores = [1.0 - cl for cl in cl_values]
+                    diffs = [(i, abs(cl_values[i] - reverse_scores[i])) for i in range(len(cl_values))]
+                    
+                    max_diff = max(d[1] for d in diffs) if diffs else 0
+                    
+                    # Get top 5 outliers with strongest disagreement
+                    top_outliers = sorted(diffs, key=lambda x: x[1], reverse=True)[:5]
+                    top_outliers_data = [
+                        {
+                            "residue_id": i + 1,  # 1-based indexing
+                            "cl": round(cl_values[i], 3),
+                            "reverse_cl": round(reverse_scores[i], 3),
+                            "diff": round(abs(cl_values[i] - reverse_scores[i]), 3),
+                        }
+                        for i, _ in top_outliers
+                    ]
+                    
+                    reverse_comparison = {
+                        "max_difference": round(max_diff, 3),
+                        "mean_difference": round(sum(d[1] for d in diffs) / len(diffs), 3),
+                        "top_outliers": top_outliers_data
+                    }
+                    
+                    # Log server-side analysis
+                    logging.info(f"🔄 Reverse Comparison - Max diff: {max_diff:.3f}, Mean diff: {reverse_comparison['mean_difference']}")
+                    logging.info(f"🔄 Top outlier residues: {[x['residue_id'] for x in top_outliers_data[:3]]}")
+                    
+            except Exception as e:
+                logging.warning(f"Reverse comparison computation failed: {e}")
+                reverse_comparison = {"error": "Comparison analysis failed"}
+
         # Parse disorder labels if provided
         parsed_labels = None
         if disorder_labels:
@@ -186,6 +226,10 @@ async def generate_cl_json(
             "scores": scores,
             "metrics": metrics
         }
+        
+        # Add reverse comparison if computed
+        if reverse_comparison is not None:
+            response["reverse_comparison"] = reverse_comparison
 
         return JSONResponse(content=response)
 
