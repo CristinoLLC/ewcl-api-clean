@@ -1,7 +1,8 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from fastapi.responses import JSONResponse
 from models.collapse_likelihood import CollapseLikelihood
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, is_aa
+from Bio.Data.IUPACData import protein_letters_3to1
 from datetime import datetime
 import numpy as np
 import io
@@ -36,14 +37,15 @@ async def generate_cl_json(
         
         structure = parser.get_structure("u", io.StringIO(pdb_str))
         
-        # Extract B-factors with graceful fallback
+        # Extract B-factors and amino acids with graceful fallback
         plddt_scores = []
+        amino_acids = []
         has_valid_bfactors = False
         
         for model in structure:
             for chain in model:
                 for residue in chain:
-                    if "CA" in residue:
+                    if "CA" in residue and is_aa(residue):
                         try:
                             bfactor = residue["CA"].get_bfactor()
                             if bfactor > 0:  # Valid B-factor
@@ -52,6 +54,11 @@ async def generate_cl_json(
                         except:
                             # Fallback for missing B-factor
                             plddt_scores.append(50.0)  # Neutral score
+                        
+                        # Extract amino acid
+                        resname = residue.get_resname().title()  # e.g., 'Ala'
+                        aa = protein_letters_3to1.get(resname, 'X')  # fallback to 'X' if unknown
+                        amino_acids.append(aa)
 
         if not plddt_scores:
             raise HTTPException(status_code=400, detail="Invalid PDB: No CA atoms found")
@@ -79,9 +86,10 @@ async def generate_cl_json(
 
         # === Build response with both raw and scaled scores ===
         scores = []
-        for i, (raw_cl, norm_cl, plddt) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores)):
+        for i, (raw_cl, norm_cl, plddt, aa) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores, amino_acids)):
             scores.append({
                 "residue_id": i + 1,
+                "aa": aa,                            # amino acid single letter code
                 "cl": round(float(norm_cl), 6),      # scaled 0-1 collapse likelihood  
                 "raw_cl": round(float(raw_cl), 6),   # un-scaled EWCL
                 "plddt": round(float(plddt), 6) if has_valid_bfactors else None,
