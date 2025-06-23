@@ -7,6 +7,7 @@ from datetime import datetime
 import numpy as np
 import io
 from ewcl_metrics import compute_metrics
+from correlation_metrics import compute_correlation_metrics
 import logging
 
 router = APIRouter()
@@ -116,12 +117,20 @@ async def generate_cl_json(
                 parsed_labels = None
         
         try:
+            # Comprehensive metrics from ewcl_metrics
             metrics = compute_metrics(
                 scores, 
-                cl_thresh=threshold,  # Pass custom threshold or None for mode default
+                cl_thresh=threshold,
                 disorder_labels=parsed_labels, 
                 mode=mode.lower()
             )
+            
+            # Additional focused correlation metrics
+            correlation_metrics = compute_correlation_metrics(scores)
+            
+            # Combine metrics
+            metrics["correlation_analysis"] = correlation_metrics
+            
             if not has_valid_bfactors:
                 metrics["data_warning"] = "B-factor data missing or invalid - correlation metrics may be unreliable"
         except Exception as e:
