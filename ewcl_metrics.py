@@ -39,13 +39,17 @@ def compute_auc_kendall(y_true, y_score):
 
     return result
 
-def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15, disorder_labels=None, mode="collapse"):
+def get_default_threshold(mode: str) -> float:
+    """Get the preferred threshold for each mode"""
+    return 0.609 if mode == "reverse" else 0.500
+
+def compute_metrics(results_data, cl_thresh=None, plddt_thresh=70, window=15, disorder_labels=None, mode="collapse"):
     """
     Compute EWCL metrics from results data with proper handling of reverse mode
     
     Args:
         results_data: Either a file path (str) or list of result dictionaries
-        cl_thresh: CL threshold for mismatch detection
+        cl_thresh: CL threshold for mismatch detection (auto-set based on mode if None)
         plddt_thresh: pLDDT threshold for mismatch detection  
         window: Window size for local correlation
         disorder_labels: Optional binary labels for AUC/Kendall computation
@@ -54,6 +58,10 @@ def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15, dis
     Returns:
         Dict with correlation metrics and optionally AUC/Kendall metrics
     """
+    # Set mode-specific threshold if not provided
+    if cl_thresh is None:
+        cl_thresh = get_default_threshold(mode)
+    
     # Handle both file path and direct data input
     if isinstance(results_data, str):
         with open(results_data) as f:
@@ -143,7 +151,7 @@ def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15, dis
         metrics_result["spearman_local_avg"] = None
         metrics_result["spearman_local_std"] = None
 
-    # Mismatches calculation
+    # Mismatches calculation with mode-specific threshold
     mismatches = sum((cl_array >= cl_thresh) & (plddt_array >= plddt_thresh))
     
     metrics_result.update({
@@ -153,7 +161,9 @@ def compute_metrics(results_data, cl_thresh=0.6, plddt_thresh=70, window=15, dis
         "total_residues": len(data),
         "cl_range": [round(float(np.min(cl_array)), 3), round(float(np.max(cl_array)), 3)],
         "plddt_range": [round(float(np.min(plddt_array)), 3), round(float(np.max(plddt_array)), 3)],
-        "mode": mode
+        "mode": mode,
+        "cl_threshold": cl_thresh,  # Include the threshold used
+        "plddt_threshold": plddt_thresh
     })
     
     # Add AUC and Kendall metrics if disorder labels are provided

@@ -19,6 +19,7 @@ async def generate_cl_json(
     normalize: bool = Query(default=True, description="Normalize CL scores to [0, 1] range"),
     use_raw_ewcl: bool = Query(default=False, description="Use raw EWCL scores for metrics computation"),
     mode: str = Query(default="collapse", description="Interpretation mode: 'collapse' or 'reverse'"),
+    threshold: float = Query(default=None, description="Custom CL threshold (default: 0.500 for collapse, 0.609 for reverse)"),
     disorder_labels: str = Query(default=None, description="Optional comma-separated binary labels for disorder regions")
 ):
     """
@@ -115,7 +116,12 @@ async def generate_cl_json(
                 parsed_labels = None
         
         try:
-            metrics = compute_metrics(scores, disorder_labels=parsed_labels, mode=mode.lower())
+            metrics = compute_metrics(
+                scores, 
+                cl_thresh=threshold,  # Pass custom threshold or None for mode default
+                disorder_labels=parsed_labels, 
+                mode=mode.lower()
+            )
             if not has_valid_bfactors:
                 metrics["data_warning"] = "B-factor data missing or invalid - correlation metrics may be unreliable"
         except Exception as e:
