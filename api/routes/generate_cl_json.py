@@ -7,13 +7,18 @@ from datetime import datetime
 import numpy as np
 import io
 from ewcl_metrics import compute_metrics
-from correlation_metrics import compute_correlation_metrics_cleaned
 import logging
 import pandas as pd
 
 router = APIRouter()
 cl_model = CollapseLikelihood(lambda_=3.0)
 parser = PDBParser(QUIET=True)
+
+def calc_mismatch(cl, ref):
+    """Calculate mismatch score between CL and reference, handling None/NaN values"""
+    if cl is None or ref is None or np.isnan(cl) or np.isnan(ref):
+        return None
+    return round(abs(cl - (ref / 100.0)), 4)  # Normalize ref to 0-1 scale
 
 @router.post("/generate-cl-json")
 async def generate_cl_json(
@@ -93,23 +98,36 @@ async def generate_cl_json(
 
         # === Build response with both raw and scaled scores ===
         scores = []
+        missing_plddt_count = 0
+        missing_bfactor_count = 0
+        mismatch_none_count = 0
+        
         for i, (raw_cl, norm_cl, plddt, aa, chain_id) in enumerate(zip(cl_scores_raw, cl_scores_normalized, plddt_scores, amino_acids, chain_ids)):
-            # Calculate mismatch score properly
-            mismatch_score = None
-            if norm_cl is not None and plddt is not None and has_valid_bfactors:
-                if not (np.isnan(norm_cl) or np.isnan(plddt)):
-                    mismatch_score = round(abs(norm_cl - (plddt / 100.0)), 4)
+            # Track missing data
+            if plddt is None or np.isnan(plddt):
+                missing_plddt_count += 1
+            if not has_valid_bfactors:
+                missing_bfactor_count += 1
+                
+            # Calculate mismatch score properly using helper function
+            mismatch_score = calc_mismatch(norm_cl, plddt)
+            if mismatch_score is None:
+                mismatch_none_count += 1
             
+            # Ensure all mandatory fields are present
             scores.append({
                 "residue_id": i + 1,
-                "chain": chain_id if chain_id else "A",     # default to chain A if missing
-                "aa": aa if aa else "X",                    # default to X if unknown
-                "cl": round(float(norm_cl), 6),             # scaled 0-1 collapse likelihood  
-                "raw_cl": round(float(raw_cl), 6),          # un-scaled EWCL
-                "plddt": round(float(plddt), 6) if has_valid_bfactors and not np.isnan(plddt) else None,
-                "b_factor": round(float(plddt), 6) if has_valid_bfactors and not np.isnan(plddt) else None,
-                "mismatch_score": mismatch_score            # difference between CL and normalized pLDDT
+                "chain": chain_id if chain_id else "A",                    # default to chain A
+                "aa": aa if aa else "X",                                   # default to X if unknown
+                "cl": round(float(norm_cl), 6),                           # scaled 0-1 collapse likelihood  
+                "raw_cl": round(float(raw_cl), 6),                        # un-scaled EWCL
+                "plddt": round(float(plddt), 6) if plddt is not None and not np.isnan(plddt) else None,
+                "b_factor": round(float(plddt), 6) if plddt is not None and not np.isnan(plddt) else None,
+                "mismatch_score": mismatch_score                          # proper mismatch calculation
             })
+
+        # Log data quality metrics
+        logging.info(f"📊 Data Quality - Total residues: {len(scores)}, Missing pLDDT: {missing_plddt_count}, Missing B-factor: {missing_bfactor_count}, Mismatch None: {mismatch_none_count}")
 
         # Parse disorder labels if provided
         parsed_labels = None
@@ -132,11 +150,11 @@ async def generate_cl_json(
                 mode=mode.lower()
             )
             
-            # Additional focused correlation metrics with proper data cleaning
-            correlation_metrics = compute_correlation_metrics_cleaned(scores, mode.lower())
+            # Enhanced correlation metrics with proper data cleaning
+            correlation_results = compute_enhanced_correlations(scores)
             
-            # Combine metrics
-            metrics["correlation_analysis"] = correlation_metrics
+            # Combine metrics with structured correlation results
+            metrics["correlation_results"] = correlation_results
             
             if not has_valid_bfactors:
                 metrics["data_warning"] = "B-factor data missing or invalid - correlation metrics may be unreliable"
@@ -144,16 +162,27 @@ async def generate_cl_json(
             logging.warning(f"Metrics computation failed: {e}")
             metrics = {"error": "Metrics computation failed"}
 
+        # Enhanced interpretation tag
+        interpretation_text = {
+            "reverse": "High score = high disorder likelihood",
+            "collapse": "High score = high collapse likelihood"
+        }
+
         response = {
             "model": "CollapseLikelihood",
             "lambda": cl_model.lambda_,
             "mode": mode.lower(),
+            "interpretation": interpretation_text.get(mode.lower(), "Score interpretation"),
             "normalized": normalize,
             "use_raw_ewcl": use_raw_ewcl,
-            "interpretation": "Reverse EWCL (Disorder)" if interpret_as_disorder else "Collapse Likelihood",
             "has_valid_bfactors": has_valid_bfactors,
             "generated": datetime.utcnow().isoformat() + "Z",
             "n_residues": len(scores),
+            "data_quality": {
+                "missing_plddt": missing_plddt_count,
+                "missing_bfactor": missing_bfactor_count,
+                "mismatch_none": mismatch_none_count
+            },
             "scores": scores,
             "metrics": metrics
         }
@@ -167,3 +196,57 @@ async def generate_cl_json(
     except Exception as e:
         logging.exception("❌ Error processing PDB file")
         return JSONResponse(status_code=500, content={"error": f"Processing failed: {str(e)}"})
+
+def compute_enhanced_correlations(scores):
+    """Compute robust correlations with proper data cleaning"""
+    try:
+        # Extract data for correlation analysis
+        data_rows = []
+        for score in scores:
+            cl_val = score.get('cl')
+            plddt_val = score.get('plddt') 
+            bfactor_val = score.get('b_factor')
+            
+            if cl_val is not None and not np.isnan(cl_val):
+                row = {'cl': cl_val}
+                if plddt_val is not None and not np.isnan(plddt_val):
+                    row['plddt'] = plddt_val
+                if bfactor_val is not None and not np.isnan(bfactor_val):
+                    row['b_factor'] = bfactor_val
+                data_rows.append(row)
+        
+        if not data_rows:
+            return {"error": "No valid data for correlation analysis"}
+        
+        # Create DataFrame and compute correlations with dropna
+        df = pd.DataFrame(data_rows)
+        
+        correlation_results = {
+            "vs_pLDDT": {"pearson": None, "spearman": None, "kendall": None},
+            "vs_b_factor": {"pearson": None, "spearman": None, "kendall": None},
+            "n_valid_samples": len(df)
+        }
+        
+        # pLDDT correlations
+        if 'plddt' in df.columns:
+            plddt_df = df[['cl', 'plddt']].dropna()
+            if len(plddt_df) >= 3 and len(plddt_df['cl'].unique()) > 1:
+                correlation_results["vs_pLDDT"]["pearson"] = round(float(plddt_df["cl"].corr(plddt_df["plddt"], method="pearson")), 4)
+                correlation_results["vs_pLDDT"]["spearman"] = round(float(plddt_df["cl"].corr(plddt_df["plddt"], method="spearman")), 4)
+                correlation_results["vs_pLDDT"]["kendall"] = round(float(plddt_df["cl"].corr(plddt_df["plddt"], method="kendall")), 4)
+                correlation_results["vs_pLDDT"]["n_samples"] = len(plddt_df)
+        
+        # B-factor correlations
+        if 'b_factor' in df.columns:
+            bfactor_df = df[['cl', 'b_factor']].dropna()
+            if len(bfactor_df) >= 3 and len(bfactor_df['cl'].unique()) > 1:
+                correlation_results["vs_b_factor"]["pearson"] = round(float(bfactor_df["cl"].corr(bfactor_df["b_factor"], method="pearson")), 4)
+                correlation_results["vs_b_factor"]["spearman"] = round(float(bfactor_df["cl"].corr(bfactor_df["b_factor"], method="spearman")), 4)
+                correlation_results["vs_b_factor"]["kendall"] = round(float(bfactor_df["cl"].corr(bfactor_df["b_factor"], method="kendall")), 4)
+                correlation_results["vs_b_factor"]["n_samples"] = len(bfactor_df)
+        
+        return correlation_results
+        
+    except Exception as e:
+        logging.error(f"Enhanced correlation computation failed: {e}")
+        return {"error": f"Correlation analysis failed: {str(e)}"}
