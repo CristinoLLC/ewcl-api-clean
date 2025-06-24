@@ -45,10 +45,12 @@ class PDFRequest(BaseModel):
     metrics: AnalysisMetrics
 
 class ResidueFeatures(BaseModel):
-    # Match your feature pipeline
     b_factor: float
     plddt: float
     hydropathy: float
     charge: float
+
+class PolyPredictRequest(BaseModel):
+    residues: List[ResidueFeatures]
 
 class PolyPredict

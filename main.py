@@ -43,7 +43,7 @@ app.add_middleware(
 # Include routers
 app.include_router(analyze_router)
 app.include_router(cl_json_router)
-app.include_router(poly_router, prefix="/api")
+app.include_router(poly_router)
 
 @app.get("/")
 def root():
