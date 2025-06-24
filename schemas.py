@@ -53,4 +53,7 @@ class ResidueFeatures(BaseModel):
 class PolyPredictRequest(BaseModel):
     residues: List[ResidueFeatures]
 
-class PolyPredict
+class PolyPredictResponse(BaseModel):
+    model: str = "poly_ridge_v1"
+    method: str = "AI Classifier"
+    cl_scores: List[float]

@@ -25,8 +25,12 @@ def predict_poly(req: PolyPredictRequest):
         model = get_poly_ridge()
         preds = model.predict(X).tolist()
         
-        # Return predictions
-        return PolyPredictResponse(cl_scores=preds)
+        # Return predictions with metadata
+        return PolyPredictResponse(
+            model="poly_ridge_v1",
+            method="AI Classifier",
+            cl_scores=preds
+        )
     
     except Exception as e:
         logging.exception(f"❌ Error during polynomial prediction: {e}")
