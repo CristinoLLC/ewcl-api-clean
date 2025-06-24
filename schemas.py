@@ -43,3 +43,12 @@ class PDFRequest(BaseModel):
     raw_enabled: bool = False
     scores: List[ResidueScore]
     metrics: AnalysisMetrics
+
+class ResidueFeatures(BaseModel):
+    # Match your feature pipeline
+    b_factor: float
+    plddt: float
+    hydropathy: float
+    charge: float
+
+class PolyPredict
