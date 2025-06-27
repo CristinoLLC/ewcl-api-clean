@@ -9,16 +9,51 @@ import io
 from ewcl_metrics import compute_metrics
 import logging
 import pandas as pd
+from scipy.stats import spearmanr, kendalltau
+from sklearn.metrics import roc_auc_score
 
 router = APIRouter()
 cl_model = CollapseLikelihood(lambda_=3.0)
 parser = PDBParser(QUIET=True)
+
+THR_DISORDER = 0.609  # DisProt threshold
 
 def calc_mismatch(cl, ref):
     """Calculate mismatch score between CL and reference, handling None/NaN values"""
     if cl is None or ref is None or np.isnan(cl) or np.isnan(ref):
         return None
     return round(abs(cl - (ref / 100.0)), 4)  # Normalize ref to 0-1 scale
+
+def build_summary(results):
+    """
+    results : list[dict] – each residue dict has keys
+        cl, plddt, b_factor, disorder (optional), ...
+    """
+    # Pull the numeric columns once
+    cl = np.asarray([r["cl"] for r in results], dtype=float)
+    plddt = np.asarray([r.get("plddt") for r in results if r.get("plddt") is not None], dtype=float)
+    bfactor = np.asarray([r.get("b_factor") for r in results if r.get("b_factor") is not None], dtype=float)
+    disorder = np.asarray([r.get("disorder") for r in results if r.get("disorder") is not None], dtype=float)
+
+    summary = {}
+
+    # ---------- pLDDT correlations ----------
+    if len(plddt) == len(cl) and np.isfinite(plddt).all() and len(set(cl)) > 1:
+        summary["plddt_spearman"] = round(spearmanr(cl, plddt)[0], 3)
+        summary["plddt_kendall"] = round(kendalltau(cl, plddt)[0], 3)
+
+    # ---------- B-factor correlations ----------
+    if len(bfactor) == len(cl) and np.isfinite(bfactor).all() and len(set(cl)) > 1:
+        summary["bfactor_spearman"] = round(spearmanr(cl, bfactor)[0], 3)
+        summary["bfactor_kendall"] = round(kendalltau(cl, bfactor)[0], 3)
+
+    # ---------- DisProt AUC ----------
+    if len(disorder) == len(cl) and np.isfinite(disorder).all():
+        labels = (disorder > THR_DISORDER).astype(int)
+        if len(set(labels)) > 1:  # Need both classes for AUC
+            summary["disprot_auc"] = round(roc_auc_score(labels, cl), 3)
+
+    return summary
 
 @router.post("/generate-cl-json")
 async def generate_cl_json(
@@ -199,8 +234,12 @@ async def generate_cl_json(
             # Enhanced correlation metrics with proper data cleaning
             correlation_results = compute_enhanced_correlations(scores)
             
-            # Combine metrics with structured correlation results
+            # Add robust summary metrics
+            summary_metrics = build_summary(scores)
+            
+            # Combine all metrics
             metrics["correlation_results"] = correlation_results
+            metrics["summary_metrics"] = summary_metrics
             
             if not has_valid_bfactors:
                 metrics["data_warning"] = "B-factor data missing or invalid - correlation metrics may be unreliable"
