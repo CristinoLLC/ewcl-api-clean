@@ -44,6 +44,12 @@ class PDFRequest(BaseModel):
     scores: List[ResidueScore]
     metrics: AnalysisMetrics
 
+class SourceInfo(BaseModel):
+    pdb_id: Optional[str] = None
+    uniprot_id: Optional[str] = None
+    name: Optional[str] = "Unknown"
+    uploaded_by: str = "api"
+
 class ResidueFeatures(BaseModel):
     b_factor: float
     plddt: float
@@ -52,8 +58,18 @@ class ResidueFeatures(BaseModel):
 
 class PolyPredictRequest(BaseModel):
     residues: List[ResidueFeatures]
+    source: Optional[SourceInfo] = None
+
+class AIScore(BaseModel):
+    residue_id: int
+    cl: float
+    risk_class: str
+    color_hex: str
 
 class PolyPredictResponse(BaseModel):
-    model: str = "poly_ridge_v1"
-    method: str = "AI Classifier"
-    cl_scores: List[float]
+    model: str
+    mode: str
+    interpretation: str
+    source: SourceInfo
+    n_residues: int
+    scores: List[AIScore]

@@ -3,9 +3,9 @@ from typing import List
 import numpy as np
 import logging
 
-# Fix the imports to use absolute paths
-from schemas import PolyPredictRequest, PolyPredictResponse
+from schemas import PolyPredictRequest, PolyPredictResponse, AIScore, SourceInfo
 from core.model_loader import get_poly_ridge
+from core.utils import classify_risk_and_color
 
 router = APIRouter()
 
@@ -25,11 +25,28 @@ def predict_poly(req: PolyPredictRequest):
         model = get_poly_ridge()
         preds = model.predict(X).tolist()
         
-        # Return predictions with metadata
+        scores_data = []
+        for i, pred_score in enumerate(preds):
+            risk_info = classify_risk_and_color(pred_score)
+            scores_data.append(
+                AIScore(
+                    residue_id=i + 1,
+                    cl=round(pred_score, 6),
+                    risk_class=risk_info["risk_class"],
+                    color_hex=risk_info["color_hex"]
+                )
+            )
+
+        source = req.source if req.source else SourceInfo()
+
+        # Return predictions with unified structure
         return PolyPredictResponse(
             model="poly_ridge_v1",
-            method="AI Classifier",
-            cl_scores=preds
+            mode="ai",
+            interpretation="Higher = collapse",
+            source=source,
+            n_residues=len(scores_data),
+            scores=scores_data
         )
     
     except Exception as e:

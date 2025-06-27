@@ -11,6 +11,7 @@ import logging
 import pandas as pd
 from scipy.stats import spearmanr, kendalltau
 from sklearn.metrics import roc_auc_score
+from core.utils import classify_risk_and_color
 
 router = APIRouter()
 cl_model = CollapseLikelihood(lambda_=3.0)
@@ -79,6 +80,24 @@ async def generate_cl_json(
             raise HTTPException(status_code=400, detail="Invalid PDB: No ATOM or HETATM lines found")
         
         structure = parser.get_structure("u", io.StringIO(pdb_str))
+        
+        # Extract protein name from header
+        protein_name = "Unknown Protein"
+        if structure.header and "name" in structure.header:
+            protein_name = structure.header.get("name", "Unknown Protein")
+        elif structure.header and "compound" in structure.header:
+            try:
+                protein_name = structure.header["compound"]["1"]["mol_id"]
+            except (KeyError, IndexError):
+                pass
+
+        # Build source block
+        source_info = {
+            "pdb_id": file.filename,
+            "uniprot_id": None,  # Cannot determine from PDB file alone
+            "name": protein_name,
+            "uploaded_by": "user"
+        }
         
         # Extract B-factors, amino acids, and chain IDs with graceful fallback
         plddt_scores = []
@@ -149,6 +168,8 @@ async def generate_cl_json(
             if mismatch_score is None:
                 mismatch_none_count += 1
             
+            risk_info = classify_risk_and_color(norm_cl)
+            
             # Ensure all mandatory fields are present
             scores.append({
                 "residue_id": i + 1,
@@ -158,57 +179,13 @@ async def generate_cl_json(
                 "raw_cl": round(float(raw_cl), 6),                        # un-scaled EWCL
                 "plddt": round(float(plddt), 6) if plddt is not None and not np.isnan(plddt) else None,
                 "b_factor": round(float(plddt), 6) if plddt is not None and not np.isnan(plddt) else None,
-                "mismatch_score": mismatch_score                          # proper mismatch calculation
+                "mismatch_score": mismatch_score,                         # proper mismatch calculation
+                "risk_class": risk_info["risk_class"],
+                "color_hex": risk_info["color_hex"]
             })
 
         # Log data quality metrics
         logging.info(f"📊 Data Quality - Total residues: {len(scores)}, Missing pLDDT: {missing_plddt_count}, Missing B-factor: {missing_bfactor_count}, Mismatch None: {mismatch_none_count}")
-
-        # === Compute Reverse vs Normal Comparison ===
-        reverse_comparison = None
-        if mode.lower() == "collapse":  # Only compute for normal mode
-            try:
-                # Extract CL scores for comparison
-                cl_values = [score["cl"] for score in scores if score["cl"] is not None]
-                
-                if cl_values:
-                    # Compute reverse scores (1 - cl)
-                    reverse_scores = [1.0 - cl for cl in cl_values]
-                    diffs = [(i, abs(cl_values[i] - reverse_scores[i])) for i in range(len(cl_values))]
-                    
-                    max_diff = max(d[1] for d in diffs) if diffs else 0
-                    
-                    # Backend warning for high disagreement
-                    if max_diff > 0.6:
-                        logging.warning(f"⚠️ High CL vs Reverse-CL disagreement: max_diff = {max_diff:.3f}")
-                        print(f"⚠️ High CL vs Reverse-CL disagreement: max_diff = {max_diff:.3f}")
-                    
-                    # Get top 5 outliers with strongest disagreement
-                    top_outliers = sorted(diffs, key=lambda x: x[1], reverse=True)[:5]
-                    top_outliers_data = [
-                        {
-                            "residue_id": i + 1,  # 1-based indexing
-                            "cl": round(cl_values[i], 3),
-                            "reverse_cl": round(reverse_scores[i], 3),
-                            "diff": round(abs(cl_values[i] - reverse_scores[i]), 3),
-                        }
-                        for i, _ in top_outliers
-                    ]
-                    
-                    reverse_comparison = {
-                        "max_difference": round(max_diff, 3),
-                        "mean_difference": round(sum(d[1] for d in diffs) / len(diffs), 3),
-                        "top_outliers": top_outliers_data,
-                        "high_disagreement_warning": max_diff > 0.6  # Flag for frontend
-                    }
-                    
-                    # Log server-side analysis
-                    logging.info(f"🔄 Reverse Comparison - Max diff: {max_diff:.3f}, Mean diff: {reverse_comparison['mean_difference']}")
-                    logging.info(f"🔄 Top outlier residues: {[x['residue_id'] for x in top_outliers_data[:3]]}")
-                    
-            except Exception as e:
-                logging.warning(f"Reverse comparison computation failed: {e}")
-                reverse_comparison = {"error": "Comparison analysis failed"}
 
         # Parse disorder labels if provided
         parsed_labels = None
@@ -255,13 +232,10 @@ async def generate_cl_json(
 
         response = {
             "model": "CollapseLikelihood",
-            "lambda": cl_model.lambda_,
             "mode": mode.lower(),
             "interpretation": interpretation_text.get(mode.lower(), "Score interpretation"),
-            "normalized": normalize,
-            "use_raw_ewcl": use_raw_ewcl,
-            "has_valid_bfactors": has_valid_bfactors,
             "generated": datetime.utcnow().isoformat() + "Z",
+            "source": source_info,
             "n_residues": len(scores),
             "data_quality": {
                 "missing_plddt": missing_plddt_count,
@@ -272,10 +246,6 @@ async def generate_cl_json(
             "metrics": metrics
         }
         
-        # Add reverse comparison if computed
-        if reverse_comparison is not None:
-            response["reverse_comparison"] = reverse_comparison
-
         return JSONResponse(content=response)
 
     except UnicodeDecodeError:
