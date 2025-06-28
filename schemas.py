@@ -73,3 +73,29 @@ class PolyPredictResponse(BaseModel):
     source: SourceInfo
     n_residues: int
     scores: List[AIScore]
+
+class ResidueData(BaseModel):
+    protein: str
+    residue_id: int
+    cl: float
+    plddt: Optional[float] = None
+    b_factor: Optional[float] = None
+    slope: Optional[float] = None
+    curvature: Optional[float] = None
+    ewcl_std_window: Optional[float] = None
+    abs_diff_cl_plddt: Optional[float] = None
+    abs_diff_cl_bfactor: Optional[float] = None
+
+class PhysicsEWCLRequest(BaseModel):
+    data: List[ResidueData]
+
+class PhysicsEWCLResponse(BaseModel):
+    model: str = "physics_based_ewcl"
+    results: List[dict]
+
+class HallucinationRequest(BaseModel):
+    data: List[ResidueData]
+
+class HallucinationResponse(BaseModel):
+    model: str = "hallucination_detector"
+    results: List[dict]
