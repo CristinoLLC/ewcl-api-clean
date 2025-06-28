@@ -9,7 +9,8 @@ from typing import List
 
 from api.routes.analyze_pdb import router as analyze_router
 from api.routes.generate_cl_json import router as cl_json_router
-from api.poly_routes import router as poly_router
+from api.routes.poly_routes import router as poly_router
+from api.routes.model_endpoints import router as model_router
 
 app = FastAPI()
 
@@ -43,7 +44,8 @@ app.add_middleware(
 # Include routers
 app.include_router(analyze_router)
 app.include_router(cl_json_router)
-app.include_router(poly_router)
+app.include_router(poly_router, prefix="/api")
+app.include_router(model_router, prefix="/api")
 
 @app.get("/")
 def root():
