@@ -5,8 +5,6 @@ import numpy as np
 import logging
 from pydantic import BaseModel
 
-from core.model_loader import get_hallucination_model
-
 router = APIRouter()
 
 class ResidueInput(BaseModel):
@@ -45,7 +43,7 @@ async def predict_physics_ewcl(data: List[ResidueInput]):
 @router.post("/predict-hallucination")
 async def predict_hallucination(data: List[ResidueInput]):
     """
-    Predict hallucination scores using trained model
+    Predict hallucination scores using placeholder logic (replace with actual model)
     """
     try:
         df = pd.DataFrame([d.dict() for d in data])
@@ -73,10 +71,8 @@ async def predict_hallucination(data: List[ResidueInput]):
                 detail="No valid rows after removing missing feature values"
             )
         
-        # Load hallucination model and predict
-        hallucination_model = get_hallucination_model()
-        X = df[required_features]
-        df["hallucination_score"] = hallucination_model.predict_proba(X)[:, 1]
+        # Placeholder hallucination score (replace with actual model)
+        df["hallucination_score"] = np.random.rand(len(df)) * 0.5  # Random scores 0-0.5
         
         return df[["protein", "residue_id", "hallucination_score"]].to_dict(orient="records")
         
