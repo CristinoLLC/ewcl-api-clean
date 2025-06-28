@@ -9,8 +9,6 @@ from typing import List
 
 from api.routes.analyze_pdb import router as analyze_router
 from api.routes.generate_cl_json import router as cl_json_router
-from api.routes.poly_routes import router as poly_router
-from api.routes.model_endpoints import router as model_router
 
 app = FastAPI()
 
@@ -44,8 +42,21 @@ app.add_middleware(
 # Include routers
 app.include_router(analyze_router)
 app.include_router(cl_json_router)
-app.include_router(poly_router, prefix="/api")
-app.include_router(model_router, prefix="/api")
+
+# Try to include optional routers if they exist
+try:
+    from api.routes.poly_routes import router as poly_router
+    app.include_router(poly_router, prefix="/api")
+    logging.info("✅ Included poly_routes")
+except ImportError:
+    logging.warning("⚠️ poly_routes not found, skipping")
+
+try:
+    from api.routes.model_endpoints import router as model_router
+    app.include_router(model_router, prefix="/api")
+    logging.info("✅ Included model_endpoints")
+except ImportError:
+    logging.warning("⚠️ model_endpoints not found, skipping")
 
 @app.get("/")
 def root():
