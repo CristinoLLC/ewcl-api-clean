@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from models.ewcl_real_model import compute_ewcl_df
-from models.qwip3d import run_qwip_on_pdb
+from models.qwip3d import run_qwip_on_pdb, compute_qwip3d
 from utils.io import save_uploaded_file, cleanup_temp_file
 import pandas as pd
 import json
