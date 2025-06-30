@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from models.ewcl_real_model import compute_ewcl_df
 from models.qwip3d import run_qwip_on_pdb, compute_qwip3d
 from utils.io import save_uploaded_file, cleanup_temp_file
+from utils.qwip3d_disorder import predict_disorder
 import pandas as pd
 import json
 import os
@@ -46,9 +47,17 @@ async def analyze_pdb(file: UploadFile = File(...)):
     finally:
         cleanup_temp_file(tmp_path)
 
+def normalize_scores(raw_scores):
+    """Normalize scores to 0-1 range for frontend coloring"""
+    min_val = min(raw_scores)
+    max_val = max(raw_scores)
+    if max_val == min_val:
+        return [0.0 for _ in raw_scores]  # avoid div by zero
+    return [(x - min_val) / (max_val - min_val) for x in raw_scores]
+
 @app.post("/analyze-qwip3d")
 async def analyze_qwip3d(file: UploadFile = File(...)):
-    """Analyze PDB file and return QWIP3D predictions with enhanced output format"""
+    """Analyze PDB file and return QWIP3D predictions with B-factor and pLDDT if available"""
     if not file.filename.endswith(".pdb"):
         raise HTTPException(status_code=400, detail="Upload a .pdb file")
 
@@ -62,7 +71,7 @@ async def analyze_qwip3d(file: UploadFile = File(...)):
         # Get detailed QWIP3D results
         result = run_qwip_on_pdb(tmp_path)
         
-        # Also extract chain info for enhanced response
+        # Also extract chain info and additional data for enhanced response
         parser = PDBParser(QUIET=True)
         structure = parser.get_structure("protein", io.StringIO(contents.decode()))
         
@@ -70,20 +79,72 @@ async def analyze_qwip3d(file: UploadFile = File(...)):
         model = structure[0]
         chain = next(model.get_chains())
         
-        # Extract residue IDs and QWIP scores from result
+        # Extract residue IDs, QWIP scores, B-factors, and pLDDT
         residue_ids = [item["residue_id"] for item in result]
         qwip_scores = [item["qwip_3d"] for item in result]
+        
+        # Extract B-factors and pLDDT from PDB structure
+        bfactors = []
+        plddts = []
+        
+        for residue in chain:
+            if "CA" in residue:
+                try:
+                    bfactor = residue["CA"].get_bfactor()
+                    bfactors.append(round(bfactor, 2))
+                    
+                    # pLDDT is often stored in B-factor field for AlphaFold structures
+                    # Check if B-factor values are in pLDDT range (0-100)
+                    if 0 <= bfactor <= 100:
+                        plddts.append(round(bfactor, 2))
+                    else:
+                        plddts.append(None)
+                except:
+                    bfactors.append(None)
+                    plddts.append(None)
         
         if len(residue_ids) < 3:
             return {"error": "Not enough residues with Cα atoms for QWIP 3D."}
         
-        return {
+        # Build enhanced response with normalized scores for frontend coloring
+        response = {
             "protein": file.filename.replace('.pdb', ''),
             "chain": chain.id,
             "residue_ids": residue_ids,
-            "qwip_3d": qwip_scores,
+            "qwip_3d": [round(score, 3) for score in qwip_scores],
+            "qwip_3d_normalized": [round(score, 3) for score in normalize_scores(qwip_scores)],
             "n_residues": len(residue_ids)
         }
         
+        # Add B-factors if available
+        if bfactors and any(b is not None for b in bfactors):
+            response["bfactor"] = bfactors
+        
+        # Add pLDDT if available (and different from B-factor)
+        if plddts and any(p is not None for p in plddts):
+            response["plddt"] = plddts
+        
+        return response
+        
     finally:
         os.remove(tmp_path)
+
+@app.post("/predict-disorder")
+async def predict_disorder_api(file: UploadFile = File(...)):
+    """Predict disorder probability from CSV with QWIP3D features"""
+    try:
+        # Read CSV file
+        contents = await file.read()
+        df = pd.read_csv(io.StringIO(contents.decode()))
+        
+        # Make predictions
+        preds = predict_disorder(df, proba=True)
+        
+        return {
+            "predictions": preds.tolist(),
+            "n_residues": len(preds),
+            "filename": file.filename
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
