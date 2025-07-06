@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from models.ewcl_physics import compute_ewcl_from_pdb
 from models.qwip3d import run_qwip_on_pdb, compute_qwip3d
-from utils.qwip3d_disorder import predict_disorder
 import pandas as pd
 import json
 import os
