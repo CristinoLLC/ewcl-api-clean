@@ -46,7 +46,6 @@ def extract_uniprot_id(pdb_content: str) -> str:
     # Try to extract from AlphaFold filename pattern
     for line in lines:
         if "AF-" in line and "-F1-model" in line:
-            # Extract P/Q ID from AF-P37840-F1-model_v4 pattern
             start = line.find("AF-") + 3
             end = line.find("-", start)
             if end > start:
@@ -107,107 +106,6 @@ async def analyze_pdb(file: UploadFile = File(...)):
             os.remove(tmp_path)
         raise HTTPException(status_code=500, detail=f"EWCL analysis failed: {str(e)}")
 
-@app.post("/get-disprot-annotations")
-async def get_disprot_annotations(file: UploadFile = File(...)):
-    """Extract UniProt ID and return DisProt disorder annotations if available"""
-    try:
-        # Read PDB content
-        pdb_content = (await file.read()).decode('utf-8')
-        
-        # Extract UniProt ID
-        uniprot_id = extract_uniprot_id(pdb_content)
-        
-        if not uniprot_id:
-            return JSONResponse(content={
-                "error": "UniProt ID not found in PDB file",
-                "has_disprot": False
-            }, status_code=400)
-
-        # Load DisProt annotations
-        annotations = load_disprot_annotations(uniprot_id)
-        
-        if not annotations:
-            return JSONResponse(content={
-                "uniprot_id": uniprot_id,
-                "has_disprot": False,
-                "disprot_regions": [],
-                "message": f"No DisProt annotations available for {uniprot_id}"
-            })
-
-        return JSONResponse(content={
-            "uniprot_id": uniprot_id,
-            "has_disprot": True,
-            "disprot_regions": annotations.get("regions", []),
-            "protein_name": annotations.get("name", "Unknown"),
-            "total_regions": len(annotations.get("regions", []))
-        })
-
-    except Exception as e:
-        return JSONResponse(content={
-            "error": f"Failed to process DisProt annotations: {str(e)}",
-            "has_disprot": False
-        }, status_code=500)
-
-@app.post("/analyze-pdb-with-disprot")
-async def analyze_pdb_with_disprot(file: UploadFile = File(...)):
-    """Combined EWCL analysis with DisProt overlay if available"""
-    try:
-        # Read file content
-        pdb_content = (await file.read()).decode('utf-8')
-        
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdb", mode='w') as tmp:
-            tmp.write(pdb_content)
-            tmp_path = tmp.name
-
-        # Run EWCL analysis
-        structure_type = detect_structure_type(pdb_content)
-        ewcl_results = compute_ewcl_from_pdb(tmp_path)
-        
-        # Try to get DisProt annotations
-        uniprot_id = extract_uniprot_id(pdb_content)
-        disprot_data = {}
-        
-        if uniprot_id:
-            annotations = load_disprot_annotations(uniprot_id)
-            if annotations:
-                disprot_data = {
-                    "uniprot_id": uniprot_id,
-                    "has_disprot": True,
-                    "disprot_regions": annotations.get("regions", [])
-                }
-            else:
-                disprot_data = {
-                    "uniprot_id": uniprot_id,
-                    "has_disprot": False,
-                    "disprot_regions": []
-                }
-        else:
-            disprot_data = {
-                "uniprot_id": None,
-                "has_disprot": False,
-                "disprot_regions": []
-            }
-        
-        # Combined response
-        response = {
-            "model_type": structure_type,
-            "metric_used": "pLDDT" if structure_type == "alphafold" else "B-factor",
-            "residues": ewcl_results,
-            "n_residues": len(ewcl_results),
-            "disprot_annotations": disprot_data
-        }
-        
-        # Cleanup
-        os.remove(tmp_path)
-        
-        return JSONResponse(content=response)
-        
-    except Exception as e:
-        if 'tmp_path' in locals():
-            os.remove(tmp_path)
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
 @app.post("/correlate")
 async def correlate_plddt(file: UploadFile = File(...)):
     """Correlate EWCL with pLDDT (AlphaFold) or B-factor (X-ray)"""
@@ -227,7 +125,6 @@ async def correlate_plddt(file: UploadFile = File(...)):
         ewcl_results = compute_ewcl_from_pdb(tmp_path)
         
         # Calculate correlation
-        import numpy as np
         from scipy.stats import pearsonr, spearmanr
         
         cl_scores = [r["cl"] for r in ewcl_results]
