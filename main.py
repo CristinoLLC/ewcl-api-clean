@@ -4,7 +4,6 @@ from fastapi.responses import JSONResponse
 from models.ewcl_physics import compute_ewcl_from_pdb
 import tempfile
 import os
-import json
 
 app = FastAPI(title="EWCL Physics API", version="2.0")
 
@@ -62,32 +61,3 @@ async def analyze_pdb(file: UploadFile = File(...)):
         if 'tmp_path' in locals():
             os.remove(tmp_path)
         raise HTTPException(status_code=500, detail=f"EWCL analysis failed: {str(e)}")
-
-@app.post("/correlate")
-async def correlate_analysis(file: UploadFile = File(...)):
-    """Correlate EWCL with pLDDT or B-factor"""
-    try:
-        pdb_content = (await file.read()).decode('utf-8')
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdb", mode='w') as tmp:
-            tmp.write(pdb_content)
-            tmp_path = tmp.name
-
-        structure_type = detect_structure_type(pdb_content)
-        ewcl_results = compute_ewcl_from_pdb(tmp_path)
-        
-        from scipy.stats import pearsonr, spearmanr
-        
-        cl_scores = [r["cl"] for r in ewcl_results]
-        bfactor_scores = [r["bfactor"] for r in ewcl_results]
-        
-        pearson_r, pearson_p = pearsonr(cl_scores, bfactor_scores)
-        spearman_rho, spearman_p = spearmanr(cl_scores, bfactor_scores)
-        
-        response = {
-            "model_type": structure_type,
-            "metric_used": "pLDDT" if structure_type == "alphafold" else "B-factor",
-            "correlation": {
-                "pearson_r": round(float(pearson_r), 4),
-                "pearson_p": round(float(pearson_p), 4),
-                "spearman_rho": round
