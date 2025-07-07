@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from models.ewcl_physics import compute_ewcl_from_pdb
 from models.hallucination_detect import compute_hallucination
 from models.pdb_analysis import is_alphafold_pdb, parse_pdb, annotate_residues
+from models.disprot_integration import compute_disprot_metrics
 import tempfile
 import os
 import numpy as np
@@ -42,7 +43,7 @@ def health_check():
 
 @app.post("/analyze-pdb")
 async def analyze_pdb(file: UploadFile = File(...)):
-    """Enhanced PDB analysis with AlphaFold detection and rich annotations"""
+    """Enhanced PDB analysis with AlphaFold detection and DisProt annotations"""
     try:
         # Read PDB content
         pdb_content = (await file.read()).decode('utf-8')
@@ -57,13 +58,16 @@ async def analyze_pdb(file: UploadFile = File(...)):
         if not residues:
             raise HTTPException(status_code=400, detail="No valid residues found in PDB")
         
-        # Annotate with CL, risk levels, hallucination flags, clusters
-        annotated_residues = annotate_residues(residues, metric_used)
+        # Annotate with CL, risk levels, hallucination flags, clusters, and DisProt
+        annotated_residues = annotate_residues(residues, metric_used, pdb_content)
         
         # Calculate summary statistics
         cl_scores = [r["cl"] for r in annotated_residues]
         conf_scores = [r["plddt"] or r["b_factor"] for r in annotated_residues]
         hallucination_count = sum(1 for r in annotated_residues if r["hallucination"])
+        
+        # Add DisProt comparison metrics
+        disprot_metrics = compute_disprot_metrics(annotated_residues)
         
         response = {
             "model_type": model_type,
@@ -74,6 +78,7 @@ async def analyze_pdb(file: UploadFile = File(...)):
             "avg_confidence": round(float(np.mean(conf_scores)), 3),
             "hallucination_count": hallucination_count,
             "hallucination_percentage": round((hallucination_count / len(annotated_residues)) * 100, 1),
+            "disprot_metrics": disprot_metrics,
             "residues": annotated_residues
         }
         

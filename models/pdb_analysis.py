@@ -3,6 +3,7 @@ import pandas as pd
 from Bio.PDB import PDBParser, is_aa
 from sklearn.cluster import DBSCAN
 import io
+from models.disprot_integration import extract_uniprot_from_header, get_disprot_labels, compute_disprot_metrics
 
 def is_alphafold_pdb(pdb_content: str) -> bool:
     """
@@ -49,13 +50,14 @@ def parse_pdb(pdb_content: str, model_type: str) -> list[dict]:
     
     return residues
 
-def annotate_residues(residues: list[dict], metric: str) -> list[dict]:
+def annotate_residues(residues: list[dict], metric: str, pdb_content: str = None) -> list[dict]:
     """
     Enrich residues with:
     - cl (collapse likelihood) 
     - risk_level
     - hallucination flag
     - cluster_id
+    - disprot labels
     """
     from models.ewcl_physics import compute_ewcl_from_pdb
     import tempfile
@@ -86,6 +88,19 @@ def annotate_residues(residues: list[dict], metric: str) -> list[dict]:
         # Hallucination detection
         conf = r["plddt"] if metric == "pLDDT" else (100 - r["b_factor"])
         r["hallucination"] = r["cl"] > 0.7 and conf < 70
+    
+    # Add DisProt annotations if PDB content is available
+    if pdb_content:
+        uniprot_id = extract_uniprot_from_header(pdb_content)
+        disprot_labels = get_disprot_labels(uniprot_id, len(residues))
+        
+        for r, label in zip(residues, disprot_labels):
+            r["disprot"] = label
+            r["uniprot_id"] = uniprot_id
+    else:
+        for r in residues:
+            r["disprot"] = None
+            r["uniprot_id"] = None
     
     # Clustering based on CL and confidence
     if len(residues) > 3:
