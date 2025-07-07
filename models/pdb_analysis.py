@@ -26,56 +26,32 @@ def three_to_one(residue_name):
     return aa_dict.get(residue_name, 'X')
 
 def parse_pdb(pdb_content: str, model_type: str) -> list[dict]:
-    """Parse PDB and extract residue data with B-factor/pLDDT info"""
-    alphafold = model_type.lower() == "alphafold"
-    residues = []
+    """Parse PDB using the enhanced EWCL physics model"""
+    import tempfile
     
-    parser = PDBParser(QUIET=True)
-    structure = parser.get_structure("model", io.StringIO(pdb_content))
+    # Save content to temporary file for EWCL processing
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdb", mode='w') as tmp:
+        tmp.write(pdb_content)
+        tmp_path = tmp.name
     
-    for res in structure[0].get_residues():
-        if not is_aa(res, standard=True) or "CA" not in res:
-            continue
-            
-        # Get average B-factor for the residue
-        b_factor = np.mean([atom.get_bfactor() for atom in res])
-        
-        residues.append({
-            "chain": res.get_parent().id,
-            "residue_id": int(res.id[1]),
-            "aa": three_to_one(res.get_resname()),
-            "b_factor": round(float(b_factor), 2),
-            "plddt": round(float(b_factor), 2) if alphafold else None,
-        })
-    
-    return residues
+    try:
+        # Use the enhanced physics-based EWCL model
+        from models.ewcl_physics import compute_ewcl_from_pdb
+        residues = compute_ewcl_from_pdb(tmp_path)
+        return residues
+    finally:
+        import os
+        os.remove(tmp_path)
 
 def annotate_residues(residues: list[dict], metric: str, pdb_content: str = None) -> list[dict]:
     """
-    Enrich residues with:
-    - cl (collapse likelihood) 
-    - risk_level
-    - hallucination flag
-    - cluster_id
-    - disprot labels
+    Enrich residues with physics-based features only
     """
-    from models.ewcl_physics import compute_ewcl_from_pdb
-    import tempfile
+    # Use the proper EWCL physics computation from ewcl_physics.py
+    # The CL scores are already computed there using pure physics
     
-    # Compute CL scores (using simplified approach for now)
-    cl_scores = []
+    # Add risk level buckets based on CL
     for r in residues:
-        # Simplified CL calculation - you can replace with full EWCL logic
-        conf = r["plddt"] if metric == "pLDDT" else r["b_factor"]
-        # Inverse relationship: high confidence = low collapse likelihood
-        cl = max(0, min(1, (100 - conf) / 100)) if conf else 0.5
-        cl_scores.append(cl)
-    
-    # Add CL scores to residues
-    for r, cl in zip(residues, cl_scores):
-        r["cl"] = round(float(cl), 3)
-        
-        # Risk level buckets
         if r["cl"] > 0.7:
             r["risk_level"] = "Very Flexible"
         elif r["cl"] > 0.4:
@@ -85,7 +61,8 @@ def annotate_residues(residues: list[dict], metric: str, pdb_content: str = None
         else:
             r["risk_level"] = "Low"
         
-        # Hallucination detection
+        # Hallucination detection using EWCL vs confidence mismatch
+        # This is now proper since CL is independent of pLDDT/B-factor
         conf = r["plddt"] if metric == "pLDDT" else (100 - r["b_factor"])
         r["hallucination"] = r["cl"] > 0.7 and conf < 70
     
@@ -102,13 +79,13 @@ def annotate_residues(residues: list[dict], metric: str, pdb_content: str = None
             r["disprot"] = None
             r["uniprot_id"] = None
     
-    # Clustering based on CL and confidence
+    # Clustering based on CL and confidence (now properly independent)
     if len(residues) > 3:
         features = np.array([[r["cl"], r["plddt"] or r["b_factor"]] for r in residues])
         labels = DBSCAN(eps=0.15, min_samples=3).fit_predict(features)
         
         for r, label in zip(residues, labels):
-            r["cluster_id"] = int(label)  # -1 for noise
+            r["cluster_id"] = int(label)
     else:
         for r in residues:
             r["cluster_id"] = 0

@@ -43,7 +43,7 @@ def health_check():
 
 @app.post("/analyze-pdb")
 async def analyze_pdb(file: UploadFile = File(...)):
-    """Enhanced PDB analysis with AlphaFold detection and DisProt annotations"""
+    """Enhanced PDB analysis with physics-based EWCL (independent of B-factor/pLDDT)"""
     try:
         # Read PDB content
         pdb_content = (await file.read()).decode('utf-8')
@@ -52,18 +52,18 @@ async def analyze_pdb(file: UploadFile = File(...)):
         model_type = detect_structure_type(pdb_content)
         metric_used = "pLDDT" if model_type == "alphafold" else "B-factor"
         
-        # Parse residues
+        # Parse residues using enhanced physics-based EWCL
         residues = parse_pdb(pdb_content, model_type)
         
         if not residues:
             raise HTTPException(status_code=400, detail="No valid residues found in PDB")
         
-        # Annotate with CL, risk levels, hallucination flags, clusters, and DisProt
+        # Annotate with risk levels, hallucination flags, clusters, and DisProt
         annotated_residues = annotate_residues(residues, metric_used, pdb_content)
         
         # Calculate summary statistics
         cl_scores = [r["cl"] for r in annotated_residues]
-        conf_scores = [r["plddt"] or r["b_factor"] for r in annotated_residues]
+        conf_scores = [r["plddt"] if r["plddt"] else r["b_factor"] for r in annotated_residues]
         hallucination_count = sum(1 for r in annotated_residues if r["hallucination"])
         
         # Add DisProt comparison metrics
