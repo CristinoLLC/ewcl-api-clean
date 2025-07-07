@@ -51,7 +51,7 @@ async def analyze_pdb(file: UploadFile = File(...)):
             "model_type": structure_type,
             "metric_used": "pLDDT" if structure_type == "alphafold" else "B-factor",
             "residues": result,
-            "n_residues": len(result)
+            "n_residues": len(result)  # ✅ Using built-in len() and int conversion
         }
         
         os.remove(tmp_path)
