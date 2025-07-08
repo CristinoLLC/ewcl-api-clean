@@ -1,0 +1,4 @@
+# Placeholder for model files:
+# - ewcl_regressor_model.pkl
+# - ewcl_residue_hallucination_detector_model.pkl  
+# - ewcl_residue_refiner_model.pkl

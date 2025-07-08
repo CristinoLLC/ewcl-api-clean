@@ -39,6 +39,6 @@ Thumbs.db
 # Logs
 *.log
 
-# Don't ignore models directory
+# Keep models directory and pkl files
 !models/
 !models/*.pkl
