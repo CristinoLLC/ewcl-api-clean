@@ -34,15 +34,32 @@ def run_physics(pdb_bytes: bytes) -> pd.DataFrame:
 MODEL_DIR = Path(__file__).resolve().parents[1] / "models"
 
 def load_model_safely(model_path, model_name):
-    """Safely load model with error handling"""
+    """Safely load model with detailed error logging"""
     try:
-        return joblib.load(model_path)
+        print(f"📁 Attempting to load {model_name} from: {model_path}")
+        print(f"📊 File exists: {model_path.exists()}")
+        if model_path.exists():
+            print(f"📏 File size: {model_path.stat().st_size} bytes")
+        
+        model = joblib.load(model_path)
+        print(f"✅ Successfully loaded {model_name}")
+        return model
+    except FileNotFoundError:
+        print(f"❌ File not found: {model_path}")
+        return None
     except Exception as e:
-        print(f"Warning: Could not load {model_name}: {e}")
+        print(f"⚠️ Failed to load {model_name}: {type(e).__name__}: {e}")
+        print(f"📍 Full error details: {str(e)}")
         return None
 
+# Debug: Print model directory info
+print(f"🔍 Model directory: {MODEL_DIR}")
+print(f"📂 Model directory exists: {MODEL_DIR.exists()}")
+if MODEL_DIR.exists():
+    print(f"📋 Files in models/: {list(MODEL_DIR.iterdir())}")
+
 REGRESSOR = load_model_safely(MODEL_DIR / "ewcl_regressor_model.pkl", "regressor")
-HIGH_MODEL = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_model.pkl", "high_model")
+HIGH_MODEL = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_model.pkl", "high_model") 
 HIGH_SCALER = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_scaler.pkl", "high_scaler")
 HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector_model.pkl", "halluc_model")
 
@@ -125,6 +142,10 @@ def health_check():
 
 @api.get("/health")
 def health():
+    model_files = []
+    if MODEL_DIR.exists():
+        model_files = [f.name for f in MODEL_DIR.glob("*")]
+    
     return {
         "status": "ok",
         "models_loaded": {
@@ -135,8 +156,10 @@ def health():
         },
         "version": "2025.0.1",
         "python_version": "3.13.4",
+        "scikit_learn_version": "1.6.1 (pinned)",
         "model_dir_exists": MODEL_DIR.exists(),
-        "model_files": [f.name for f in MODEL_DIR.glob("*.pkl")] if MODEL_DIR.exists() else []
+        "model_files": model_files,
+        "model_dir_path": str(MODEL_DIR)
     }
 
 # ─────────────  ENDPOINT 1  ─────────────
