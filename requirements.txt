@@ -1,5 +1,5 @@
-fastapi==0.111.0
-uvicorn==0.29.0
+fastapi
+uvicorn
 numpy
 pandas
 scikit-learn

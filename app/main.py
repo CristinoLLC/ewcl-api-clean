@@ -118,6 +118,19 @@ def health_check():
         }
     }
 
+@api.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "models_loaded": {
+            "regressor": REGRESSOR is not None,
+            "refiner": HIGH_MODEL is not None,
+            "hallucination": HALLUC_MODEL is not None,
+            "scaler": HIGH_SCALER is not None
+        },
+        "version": "2025.0.1"
+    }
+
 # ─────────────  ENDPOINT 1  ─────────────
 @api.post("/raw-physics/")
 async def raw_physics(pdb: UploadFile = File(...)):
