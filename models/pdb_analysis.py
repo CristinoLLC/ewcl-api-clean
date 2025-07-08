@@ -35,21 +35,35 @@ def parse_pdb(pdb_content: str, model_type: str) -> list[dict]:
         tmp_path = tmp.name
     
     try:
-        # Use the enhanced physics-based EWCL model
+        # Use the enhanced physics-based EWCL model (matches local version)
         from models.ewcl_physics import compute_ewcl_from_pdb
         residues = compute_ewcl_from_pdb(tmp_path)
-        return residues
+        
+        # Convert to expected format for consistency
+        formatted_residues = []
+        for r in residues:
+            formatted_residues.append({
+                "chain": r.get("chain", "A"),
+                "residue_id": r["residue_id"],
+                "aa": r["aa"],
+                "b_factor": r["bfactor"],
+                "plddt": r["plddt"],
+                "cl": r["cl"],
+                "entropy_hydropathy": r["hydro_entropy"],
+                "entropy_charge": r["charge_entropy"],
+                "curvature": r["bfactor_curv"],
+                "note": r["note"]
+            })
+        
+        return formatted_residues
     finally:
         import os
         os.remove(tmp_path)
 
 def annotate_residues(residues: list[dict], metric: str, pdb_content: str = None) -> list[dict]:
     """
-    Enrich residues with physics-based features only
+    Enrich residues with additional annotations (CL already computed by physics model)
     """
-    # Use the proper EWCL physics computation from ewcl_physics.py
-    # The CL scores are already computed there using pure physics
-    
     # Add risk level buckets based on CL
     for r in residues:
         if r["cl"] > 0.7:
@@ -62,7 +76,6 @@ def annotate_residues(residues: list[dict], metric: str, pdb_content: str = None
             r["risk_level"] = "Low"
         
         # Hallucination detection using EWCL vs confidence mismatch
-        # This is now proper since CL is independent of pLDDT/B-factor
         conf = r["plddt"] if metric == "pLDDT" else (100 - r["b_factor"])
         r["hallucination"] = r["cl"] > 0.7 and conf < 70
     

@@ -1,144 +1,134 @@
 """
-Physics-based EWCL model - Enhanced with proper entropy calculations
-No dependency on B-factor or pLDDT for CL computation
+Physics-based EWCL model - Enhanced AlphaFold-aware version
+Matches the local enhanced_ewcl_af.py implementation
 """
 
-import json, math, warnings
-from typing import List, Dict
-from Bio.PDB import PDBParser, is_aa
+import os, json, re
 import numpy as np
 from scipy.signal import savgol_filter
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import entropy
+from Bio.PDB import PDBParser, is_aa
+from typing import List, Dict
 
-# ─────────────────────────────────────────────────────────────
-# CONSTANTS
-# ─────────────────────────────────────────────────────────────
-HYDRO_SCORES = {  # Kyte–Doolittle (normalised 0-1)
-    "I": 1.00, "V": 0.86, "L": 0.82, "F": 0.80, "C": 0.77,
-    "M": 0.74, "A": 0.62, "G": 0.48, "T": 0.40, "S": 0.38,
-    "W": 0.37, "Y": 0.32, "P": 0.27, "H": 0.23, "E": 0.07,
-    "Q": 0.04, "D": 0.02, "N": 0.00, "K": 0.00, "R": 0.00
+# ──────────────── helper tables ────────────────
+HYDROPATHY = {
+    'ALA': 1.8, 'ARG': -4.5, 'ASN': -3.5, 'ASP': -3.5, 'CYS': 2.5,
+    'GLN': -3.5, 'GLU': -3.5, 'GLY': -0.4, 'HIS': -3.2, 'ILE': 4.5,
+    'LEU': 3.8, 'LYS': -3.9, 'MET': 1.9, 'PHE': 2.8, 'PRO': -1.6,
+    'SER': -0.8, 'THR': -0.7, 'TRP': -0.9, 'TYR': -1.3, 'VAL': 4.2,
 }
+CHARGE = {aa: 0 for aa in HYDROPATHY}
+CHARGE.update({'ASP': -1, 'GLU': -1, 'ARG': 1, 'LYS': 1, 'HIS': 0.5})
 
-CHARGE = {               # +1 / 0 / -1 at pH 7
-    "K":  1, "R":  1, "H":  0.1,
-    "D": -1, "E": -1
-}
-
-# ─────────────────────────────────────────────────────────────
-# HELPER FUNCTIONS
-# ─────────────────────────────────────────────────────────────
-def _norm(x: np.ndarray) -> np.ndarray:
-    """0-1 min-max normalization (gracefully handles flat arrays)"""
+# ──────────────── math helpers ────────────────
+def _norm(x):
+    """0-1 min-max normalization"""
     x = x.astype(float)
     ptp = np.ptp(x)
     return (x - x.min()) / (ptp + 1e-9)
 
-def sliding_entropy(arr: np.ndarray, win=5) -> np.ndarray:
+def curvature(arr):
+    """Second derivative approximation"""
+    return np.gradient(np.gradient(arr.astype(float)))
+
+def sliding_entropy(arr, win=5):
     """Shannon entropy over a sliding window"""
     out = np.zeros_like(arr, dtype=float)
     lo, hi = arr.min(), arr.max()
-    if hi - lo < 1e-9:  # Handle constant arrays
-        return out
-    
     for i in range(len(arr)):
-        s = max(0, i - win//2)
-        e = min(len(arr), i + win//2 + 1)
-        window_data = arr[s:e]
-        hist, _ = np.histogram(window_data, bins=10, range=(lo, hi), density=True)
+        s, e = max(0, i - win // 2), min(len(arr), i + win // 2 + 1)
+        hist, _ = np.histogram(arr[s:e], bins=10, range=(lo, hi), density=True)
         out[i] = entropy(hist + 1e-9)
     return out
 
-def compute_curvature_features(ca_coords: np.ndarray) -> np.ndarray:
-    """Compute curvature from CA coordinates"""
-    if len(ca_coords) < 3:
-        return np.zeros(len(ca_coords))
-    
-    # Second derivative approximation for curvature
-    curv = np.zeros(len(ca_coords))
-    for i in range(1, len(ca_coords) - 1):
-        v1 = ca_coords[i] - ca_coords[i-1]
-        v2 = ca_coords[i+1] - ca_coords[i]
-        
-        # Angle between consecutive segments
-        v1_norm = np.linalg.norm(v1)
-        v2_norm = np.linalg.norm(v2)
-        
-        if v1_norm > 0 and v2_norm > 0:
-            cos_angle = np.clip(np.dot(v1, v2) / (v1_norm * v2_norm), -1, 1)
-            curv[i] = np.arccos(cos_angle)
-    
-    # Handle endpoints
-    curv[0] = curv[1] if len(curv) > 1 else 0
-    curv[-1] = curv[-2] if len(curv) > 1 else 0
-    
-    return curv
+def sign_flip_ratio(arr, win=5):
+    """Fraction of sign flips in first derivative inside window"""
+    flips = np.zeros_like(arr, dtype=float)
+    for i in range(len(arr)):
+        s, e = max(0, i - win // 2), min(len(arr), i + win // 2 + 1)
+        diff_sign = np.sign(np.diff(arr[s:e]))
+        flips[i] = np.sum(np.diff(diff_sign) != 0) / max(1, len(diff_sign) - 1)
+    return flips
 
-# ─────────────────────────────────────────────────────────────
-# MAIN ENTRY POINT
-# ─────────────────────────────────────────────────────────────
-def compute_ewcl_from_pdb(pdb_path: str) -> List[Dict]:
+# ──────────────── main model ────────────────
+def compute_ewcl_from_pdb(pdb_path: str, win_ent=5, win_curv=5) -> List[Dict]:
     """
-    Enhanced physics-based EWCL computation
+    Enhanced physics-based EWCL computation matching local model
     """
+    # Detect AlphaFold by checking header
+    with open(pdb_path, 'r', encoding='utf-8', errors='ignore') as fh:
+        first_60 = ''.join([fh.readline() for _ in range(60)])
+    is_af = bool(re.search(r'ALPHAFOLD', first_60, re.I)) \
+            or os.path.basename(pdb_path).startswith("AF-")
+
     parser = PDBParser(QUIET=True)
-    structure = parser.get_structure("p", pdb_path)
+    model = parser.get_structure("X", pdb_path)[0]
 
-    # Gather residue data
-    residues = []
-    ca_coords = []
-    
-    for res in structure.get_residues():
-        if not is_aa(res, standard=True) or "CA" not in res:
+    # Extract per-residue data
+    bfac, aa, plddt = [], [], []
+    for res in model.get_residues():
+        if "CA" not in res:
             continue
-        residues.append(res)
-        ca_coords.append(res["CA"].get_vector().get_array())
+        beta = res["CA"].get_bfactor()
+        bfac.append(beta)
+        plddt.append(beta if is_af else np.nan)
+        aa.append(res.get_resname())
 
-    if len(residues) == 0:
+    if len(bfac) == 0:
         return []
 
-    ca_coords = np.array(ca_coords)
+    bfac = np.array(bfac)
+    plddt = np.array(plddt)
 
-    # Extract sequence properties
-    hydro = np.array([HYDRO_SCORES.get(res.get_resname()[0], 0.0) for res in residues])
-    charge = np.array([CHARGE.get(res.get_resname()[0], 0) for res in residues])
+    # Core features
+    bfac_norm = _norm(bfac)
+    hydro = np.array([HYDROPATHY.get(a, 0) for a in aa])
+    charge = np.array([CHARGE.get(a, 0) for a in aa])
     
-    # Extract B-factors separately (for output only, not CL computation)
-    bfactors = np.array([res["CA"].get_bfactor() for res in residues])
+    # Entropy calculations
+    hydro_ent = sliding_entropy(hydro, win_ent)
+    charge_ent = sliding_entropy(charge, win_ent)
+    hydro_ent_n = _norm(hydro_ent)
+    charge_ent_n = _norm(charge_ent)
 
-    # Physics-based feature calculations
-    hydro_entropy = sliding_entropy(hydro, win=5)
-    charge_entropy = sliding_entropy(charge, win=5)
-    backbone_curvature = compute_curvature_features(ca_coords)
+    # Curvature calculations with safety checks
+    win_curv_adj = max(3, win_curv | 1)
+    win_curv_adj = min(win_curv_adj, len(bfac) - (1 - len(bfac) % 2))
 
-    # Normalize features
-    hydro_ent_norm = _norm(hydro_entropy)
-    charge_ent_norm = _norm(charge_entropy)
-    curv_norm = _norm(backbone_curvature)
+    curv_raw = curvature(bfac)
+    curv_savgol = curvature(savgol_filter(bfac, win_curv_adj, 2))
+    curv_mean = curvature(uniform_filter1d(bfac, size=win_curv_adj))
+    curv_median = curvature(uniform_filter1d(bfac, size=win_curv_adj, mode='nearest'))
+    curv_ent = sliding_entropy(curv_raw, win_ent)
+    curv_flips = sign_flip_ratio(curv_raw, win_ent)
+    curv_clip = np.clip((curv_raw - curv_raw.mean()) / (curv_raw.std() + 1e-6), -2, 2)
 
-    # Physics-based collapse likelihood (independent of B-factor/pLDDT)
-    cl = (0.4 * hydro_ent_norm + 
-          0.4 * charge_ent_norm + 
-          0.2 * curv_norm)
+    # Final collapse likelihood calculation (matching local model)
+    cl = (0.35 * hydro_ent_n + 0.35 * charge_ent_n + 0.30 * bfac_norm)
 
-    # Build output
+    # Build result records
     results = []
-    for idx, res in enumerate(residues):
-        chain = res.get_parent().id
-        res_id = res.id[1]
-        b_factor_val = float(bfactors[idx])
-        
+    for i in range(len(bfac)):
         results.append({
-            "chain": chain,
-            "residue_id": int(res_id),
-            "aa": res.get_resname()[0],
-            "b_factor": round(b_factor_val, 2),
-            "plddt": round(b_factor_val, 2),  # Copy B-factor as pLDDT for AlphaFold
-            "entropy_hydropathy": round(float(hydro_entropy[idx]), 3),
-            "entropy_charge": round(float(charge_entropy[idx]), 3),
-            "curvature": round(float(backbone_curvature[idx]), 3),
-            "cl": round(float(cl[idx]), 3)
+            "protein": os.path.splitext(os.path.basename(pdb_path))[0],
+            "residue_id": i + 1,
+            "aa": aa[i],
+            "bfactor": float(bfac[i]),
+            "plddt": None if np.isnan(plddt[i]) else float(plddt[i]),
+            "cl": round(float(cl[i]), 3),
+            "bfactor_norm": float(bfac_norm[i]),
+            "hydro_entropy": float(hydro_ent[i]),
+            "charge_entropy": float(charge_ent[i]),
+            "bfactor_curv": float(curv_raw[i]),
+            "bfactor_curv_entropy": float(curv_ent[i]),
+            "bfactor_curv_flips": float(curv_flips[i]),
+            "note": "Unstable" if cl[i] > 0.6 else "Stable"
         })
     
     return results
+
+# Legacy compatibility - keeping old function names
+def compute_curvature_features(pdb_path: str) -> List[Dict]:
+    """Legacy wrapper for compatibility"""
+    return compute_ewcl_from_pdb(pdb_path)
