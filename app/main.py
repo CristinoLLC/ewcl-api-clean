@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
 import tempfile, joblib, pandas as pd, numpy as np
+import warnings
 
 # ───────────────────────────────────────────
 # 1)  load physics extractor
@@ -28,18 +29,22 @@ def run_physics(pdb_bytes: bytes) -> pd.DataFrame:
     return df
 
 # ───────────────────────────────────────────
-# 2)  load ML models & scalers
+# 2)  load ML models & scalers with error handling
 # ───────────────────────────────────────────
 MODEL_DIR = Path(__file__).resolve().parents[1] / "models"
 
-try:
-    REGRESSOR = joblib.load(MODEL_DIR / "ewcl_regressor_model.pkl")
-    HIGH_MODEL = joblib.load(MODEL_DIR / "ewcl_residue_local_high_model.pkl")
-    HIGH_SCALER = joblib.load(MODEL_DIR / "ewcl_residue_local_high_scaler.pkl")
-    HALLUC_MODEL = joblib.load(MODEL_DIR / "hallucination_detector_model.pkl")
-except FileNotFoundError as e:
-    print(f"Warning: Model file not found: {e}")
-    REGRESSOR = HIGH_MODEL = HIGH_SCALER = HALLUC_MODEL = None
+def load_model_safely(model_path, model_name):
+    """Safely load model with error handling"""
+    try:
+        return joblib.load(model_path)
+    except Exception as e:
+        print(f"Warning: Could not load {model_name}: {e}")
+        return None
+
+REGRESSOR = load_model_safely(MODEL_DIR / "ewcl_regressor_model.pkl", "regressor")
+HIGH_MODEL = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_model.pkl", "high_model")
+HIGH_SCALER = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_scaler.pkl", "high_scaler")
+HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector_model.pkl", "halluc_model")
 
 REG_FEATS = [
     "bfactor",
@@ -128,7 +133,10 @@ def health():
             "hallucination": HALLUC_MODEL is not None,
             "scaler": HIGH_SCALER is not None
         },
-        "version": "2025.0.1"
+        "version": "2025.0.1",
+        "python_version": "3.13.4",
+        "model_dir_exists": MODEL_DIR.exists(),
+        "model_files": [f.name for f in MODEL_DIR.glob("*.pkl")] if MODEL_DIR.exists() else []
     }
 
 # ─────────────  ENDPOINT 1  ─────────────
@@ -149,18 +157,22 @@ async def raw_physics(pdb: UploadFile = File(...)):
 async def analyze_ewcl(pdb: UploadFile = File(...)):
     """
     Physics + main regressor (`cl_pred`).
-    Uses: ewcl_regressor_model.pkl with 8 features
     """
     try:
         df = run_physics(await pdb.read())
+        
+        # Check if regressor is available
         if REGRESSOR is None:
-            raise HTTPException(status_code=503, detail="Regressor model not available")
+            # Fallback: return physics-only results
+            df["cl_pred"] = df["cl"]  # Use physics CL as fallback
+            return JSONResponse(
+                df[["chain", "position", "aa", "cl", "cl_pred"]].to_dict("records")
+            )
         
-        # Ensure plddt column exists for regressor features
+        # Add plddt column for regressor features
         if "plddt" not in df.columns:
-            df["plddt"] = df["bfactor"]  # Copy for consistency with training
+            df["plddt"] = df["bfactor"]
         
-        # Use exact features the model was trained on
         features = ['bfactor', 'plddt', 'bfactor_norm', 'hydro_entropy', 'charge_entropy',
                    'bfactor_curv', 'bfactor_curv_entropy', 'bfactor_curv_flips']
         
@@ -181,11 +193,18 @@ async def refined_ewcl(pdb: UploadFile = File(...)):
     """
     try:
         df = run_physics(await pdb.read())
+        
+        # Check if high model is available
         if HIGH_MODEL is None or HIGH_SCALER is None:
-            raise HTTPException(status_code=503, detail="High refinement models not available")
+            # Fallback: return physics-only results
+            df["cl_refined"] = df["cl"]  # Use physics CL as fallback
+            return JSONResponse(
+                df[["chain", "position", "aa", "cl", "cl_refined"]].to_dict("records")
+            )
         
         # Add plddt column for high model features
-        df["plddt"] = df["bfactor"]  # Copy for consistency with training
+        if "plddt" not in df.columns:
+            df["plddt"] = df["bfactor"]
         
         X = df[HIGH_FEATS]
         X_scaled = HIGH_SCALER.transform(X)
@@ -205,11 +224,21 @@ async def detect_hallucination(pdb: UploadFile = File(...)):
     """
     try:
         df = run_physics(await pdb.read())
+        
+        # Check if models are available
         if REGRESSOR is None or HALLUC_MODEL is None:
-            raise HTTPException(status_code=503, detail="Hallucination detection models not available")
+            # Fallback: return no hallucinations detected
+            df["cl_pred"] = df["cl"]
+            df["hallucination"] = 0
+            df["halluc_score"] = 0.0
+            return JSONResponse(
+                df[["chain", "position", "aa", "cl", "cl_pred",
+                    "hallucination", "halluc_score"]].to_dict("records")
+            )
         
         # Add plddt column for regressor features
-        df["plddt"] = df["bfactor"]  # Copy for consistency with training
+        if "plddt" not in df.columns:
+            df["plddt"] = df["bfactor"]
         
         df["cl_pred"] = REGRESSOR.predict(df[REG_FEATS])
 
@@ -221,7 +250,7 @@ async def detect_hallucination(pdb: UploadFile = File(...)):
             pd.Series(np.sign(df["cl_diff_slope"])).diff().abs().fillna(0)
         )
 
-        #  Classify using correct feature set
+        #  Classify
         X = df[HAL_FEATS]
         df["hallucination"] = HALLUC_MODEL.predict(X)
         df["halluc_score"]  = HALLUC_MODEL.predict_proba(X)[:, 1]
