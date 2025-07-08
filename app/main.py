@@ -1,5 +1,5 @@
 """
-FastAPI entry-point with three EWCL endpoints
+Clean FastAPI with three EWCL endpoints only
 """
 
 from fastapi import FastAPI, UploadFile, File
@@ -25,32 +25,67 @@ api.add_middleware(
 
 @api.get("/")
 def health_check():
-    return {"status": "EWCL API", "endpoints": 3}
+    return {"status": "EWCL API", "endpoints": ["analyze-ewcl", "detect-hallucination", "refined-ewcl"]}
 
-# ─────────── 1) raw + main regressor ───────────
 @api.post("/analyze-ewcl/")
 async def analyze_ewcl(pdb: UploadFile = File(...)):
-    """Raw physics + main regressor prediction"""
+    """
+    Predicts collapse likelihood from physics-based features
+    Uses: ewcl_regressor_model.pkl
+    """
     raw_bytes = await pdb.read()
     df = run_physics(raw_bytes)
     df = add_main_prediction(df)
-    return df[["residue_id", "chain", "position", "aa", "cl", "cl_pred"]].to_dict(orient="records")
+    
+    # Clean output format
+    output_cols = ["position", "cl", "chain", "aa"]
+    if "cl_pred" in df.columns:
+        output_cols.append("cl_pred")
+    
+    return df[output_cols].to_dict(orient="records")
 
-# ─────────── 2) refined (high model + scaler) ───────────
+@api.post("/detect-hallucination/")
+async def detect_hallucination(pdb: UploadFile = File(...)):
+    """
+    Flags residues where cl_model diverges from expected physics
+    Uses: hallucination_detector_model.pkl
+    """
+    raw_bytes = await pdb.read()
+    df = run_physics(raw_bytes)
+    df = add_main_prediction(df)
+    df = add_hallucination(df)
+    
+    # Format output for hallucination detection
+    result = []
+    for _, row in df.iterrows():
+        result.append({
+            "position": int(row["position"]),
+            "hallucination": int(row["hallucination"]),
+            "probability": round(float(row["halluc_score"]), 3),
+            "chain": row["chain"],
+            "aa": row["aa"]
+        })
+    
+    return result
+
 @api.post("/refined-ewcl/")
 async def refined_ewcl(pdb: UploadFile = File(...)):
-    """High-correlation refined prediction"""
+    """
+    More confident scoring for highly correlated residues
+    Uses: ewcl_residue_local_high_model.pkl + ewcl_residue_local_high_scaler.pkl
+    """
     raw_bytes = await pdb.read()
     df = run_physics(raw_bytes)
     df = add_high_refinement(df)
-    return df[["residue_id", "chain", "position", "aa", "cl", "cl_refined"]].to_dict(orient="records")
-
-# ─────────── 3) hallucination detection ───────────
-@api.post("/detect-hallucination/")
-async def detect_hallucination(pdb: UploadFile = File(...)):
-    """Hallucination detection using mismatch patterns"""
-    raw_bytes = await pdb.read()
-    df = run_physics(raw_bytes)
-    df = add_main_prediction(df)    # need cl_pred for cl_diff
-    df = add_hallucination(df)
-    return df[["residue_id", "chain", "position", "aa", "cl", "cl_pred", "hallucination", "halluc_score"]].to_dict(orient="records")
+    
+    # Format output for refined predictions
+    result = []
+    for _, row in df.iterrows():
+        result.append({
+            "position": int(row["position"]),
+            "refined_cl": round(float(row["cl_refined"]), 3),
+            "chain": row["chain"],
+            "aa": row["aa"]
+        })
+    
+    return result

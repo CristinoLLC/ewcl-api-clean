@@ -50,6 +50,29 @@ def sign_flip_ratio(arr, win=5):
         flips[i] = np.sum(np.diff(diff_sign) != 0) / max(1, len(diff_sign) - 1)
     return flips
 
+# ──────────────── structural info extraction ────────────────
+def extract_chain_position_aa(pdb_path):
+    """Extract chain, position, and amino acid info from PDB"""
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure("protein", pdb_path)
+    info = []
+    for model in structure:
+        for chain in model:
+            for res in chain:
+                if res.id[0] != ' ':  # Exclude heteroatoms
+                    continue
+                if "CA" not in res:  # Skip if no CA atom
+                    continue
+                try:
+                    info.append({
+                        "chain": chain.id,
+                        "position": res.id[1],
+                        "aa": res.get_resname()
+                    })
+                except:
+                    continue
+    return info
+
 # ──────────────── main model ────────────────
 def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
     with open(pdb_path, 'r', encoding='utf-8', errors='ignore') as fh:
@@ -61,7 +84,6 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
     model = parser.get_structure("X", pdb_path)[0]
 
     bfac, aa, plddt = [], [], []
-    chain_ids, res_ids = [], []
     for res in model.get_residues():
         if "CA" not in res:
             continue
@@ -69,8 +91,6 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
         bfac.append(beta)
         plddt.append(beta if is_af else np.nan)
         aa.append(res.get_resname())
-        chain_ids.append(res.get_parent().id)
-        res_ids.append(res.id[1])
 
     bfac = np.array(bfac)
     plddt = np.array(plddt)
@@ -96,13 +116,12 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
 
     cl = (0.35 * hydro_ent_n + 0.35 * charge_ent_n + 0.30 * bfac_norm)
 
+    struct_info = extract_chain_position_aa(pdb_path)
+
     recs = []
     for i in range(len(bfac)):
-        recs.append({
+        base_record = {
             "residue_id": i,  # 0-based internal index
-            "chain": chain_ids[i],
-            "position": res_ids[i],  # Original residue number
-            "aa": aa[i],
             "cl": round(float(cl[i]), 3),
             "bfactor": float(bfac[i]),
             "bfactor_norm": float(bfac_norm[i]),
@@ -110,9 +129,22 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
             "charge_entropy": float(charge_ent[i]),
             "bfactor_curv": float(curv_raw[i]),
             "bfactor_curv_entropy": float(curv_ent[i]),
-            "bfactor_curv_flips": float(curv_flips[i]),
-            "note": "Unstable" if cl[i] > 0.6 else "Stable"
-        })
+            "bfactor_curv_flips": float(curv_flips[i])
+        }
+        
+        # Merge with structural info if available
+        if i < len(struct_info):
+            base_record.update(struct_info[i])
+        else:
+            # Fallback values
+            base_record.update({
+                "chain": "A",
+                "position": i + 1,
+                "aa": aa[i] if i < len(aa) else "UNK"
+            })
+        
+        recs.append(base_record)
+    
     return recs
 
 # ──────────────── batch run ────────────────
