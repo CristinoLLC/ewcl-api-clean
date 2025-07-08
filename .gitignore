@@ -42,3 +42,15 @@ Thumbs.db
 # Keep models directory and pkl files
 !models/
 !models/*.pkl
+
+# Clean project - ignore old legacy folders
+backend/
+core/
+one/
+routes/
+time/
+utils/
+api/routes/
+
+# Keep only the clean structure
+# Keep: app/, models/, requirements.txt, README.md, render.yaml
