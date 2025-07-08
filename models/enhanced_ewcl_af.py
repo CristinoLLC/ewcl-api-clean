@@ -61,6 +61,7 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
     model = parser.get_structure("X", pdb_path)[0]
 
     bfac, aa, plddt = [], [], []
+    chain_ids, res_ids = [], []
     for res in model.get_residues():
         if "CA" not in res:
             continue
@@ -68,6 +69,8 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
         bfac.append(beta)
         plddt.append(beta if is_af else np.nan)
         aa.append(res.get_resname())
+        chain_ids.append(res.get_parent().id)
+        res_ids.append(res.id[1])
 
     bfac = np.array(bfac)
     plddt = np.array(plddt)
@@ -96,12 +99,12 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
     recs = []
     for i in range(len(bfac)):
         recs.append({
-            "protein": os.path.splitext(os.path.basename(pdb_path))[0],
-            "residue_id": i + 1,
+            "residue_id": i,  # 0-based internal index
+            "chain": chain_ids[i],
+            "position": res_ids[i],  # Original residue number
             "aa": aa[i],
-            "bfactor": float(bfac[i]),
-            "plddt": None if np.isnan(plddt[i]) else float(plddt[i]),
             "cl": round(float(cl[i]), 3),
+            "bfactor": float(bfac[i]),
             "bfactor_norm": float(bfac_norm[i]),
             "hydro_entropy": float(hydro_ent[i]),
             "charge_entropy": float(charge_ent[i]),

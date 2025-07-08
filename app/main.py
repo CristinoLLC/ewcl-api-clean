@@ -1,13 +1,13 @@
 """
-FastAPI entry-point for EWCL Collapse Service
+FastAPI entry-point with three EWCL endpoints
 """
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from app.physics_ewcl import compute_ewcl_from_pdb
-from app.ml_predict import get_refined_cl, detect_hallucinations
+from app.physics import run_physics
+from app.predictors import add_main_prediction, add_high_refinement, add_hallucination
 
-api = FastAPI(title="EWCL Collapse Service", version="1.0")
+api = FastAPI(title="EWCL Collapse-Likelihood API", version="1.0")
 
 # CORS middleware
 api.add_middleware(
@@ -25,17 +25,32 @@ api.add_middleware(
 
 @api.get("/")
 def health_check():
-    return {"status": "EWCL Collapse Service", "version": "1.0"}
+    return {"status": "EWCL API", "endpoints": 3}
 
-@api.post("/analyze-pdb")
-async def analyze_pdb(pdb: UploadFile = File(...)):
-    """Core endpoint: returns raw CL, refined CL, hallucination flags."""
+# ─────────── 1) raw + main regressor ───────────
+@api.post("/analyze-ewcl/")
+async def analyze_ewcl(pdb: UploadFile = File(...)):
+    """Raw physics + main regressor prediction"""
     raw_bytes = await pdb.read()
-    cl_df = compute_ewcl_from_pdb(raw_bytes)
+    df = run_physics(raw_bytes)
+    df = add_main_prediction(df)
+    return df[["residue_id", "chain", "position", "aa", "cl", "cl_pred"]].to_dict(orient="records")
 
-    # ===== ML passes =====
-    cl_df = get_refined_cl(cl_df)
-    cl_df = detect_hallucinations(cl_df)
+# ─────────── 2) refined (high model + scaler) ───────────
+@api.post("/refined-ewcl/")
+async def refined_ewcl(pdb: UploadFile = File(...)):
+    """High-correlation refined prediction"""
+    raw_bytes = await pdb.read()
+    df = run_physics(raw_bytes)
+    df = add_high_refinement(df)
+    return df[["residue_id", "chain", "position", "aa", "cl", "cl_refined"]].to_dict(orient="records")
 
-    # return as JSON (records-orient)
-    return cl_df.to_dict(orient="records")
+# ─────────── 3) hallucination detection ───────────
+@api.post("/detect-hallucination/")
+async def detect_hallucination(pdb: UploadFile = File(...)):
+    """Hallucination detection using mismatch patterns"""
+    raw_bytes = await pdb.read()
+    df = run_physics(raw_bytes)
+    df = add_main_prediction(df)    # need cl_pred for cl_diff
+    df = add_hallucination(df)
+    return df[["residue_id", "chain", "position", "aa", "cl", "cl_pred", "hallucination", "halluc_score"]].to_dict(orient="records")
