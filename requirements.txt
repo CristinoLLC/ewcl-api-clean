@@ -1,9 +1,5 @@
 fastapi
 uvicorn
-pandas
 biopython
-python-multipart
 numpy>=1.24.0,<2.0
-scikit-learn
-matplotlib
 scipy

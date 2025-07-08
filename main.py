@@ -1,147 +1,70 @@
+"""
+Fresh EWCL API - Completely Clean
+"""
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from models.ewcl_physics import compute_ewcl_from_pdb
-from models.hallucination_detect import compute_hallucination
-from models.pdb_analysis import is_alphafold_pdb, parse_pdb, annotate_residues
-from models.disprot_integration import compute_disprot_metrics
+from models.ewcl_core import analyze_pdb
 import tempfile
 import os
 import numpy as np
 
-app = FastAPI(title="EWCL Physics API", version="2.0")
+app = FastAPI(title="Fresh EWCL API", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://www.ewclx.com",
-        "https://ewclx.com", 
-        "http://localhost:3000",
-        "http://127.0.0.1:3000"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-def detect_structure_type(pdb_content):
-    """Enhanced structure type detection"""
-    if is_alphafold_pdb(pdb_content):
-        return "alphafold"
-    
-    lines = pdb_content.split('\n')
-    for line in lines:
-        if "EXPDTA" in line and "X-RAY" in line:
-            return "xray"
-        if "EXPDTA" in line and "NMR" in line:
-            return "nmr"
-    return "unknown"
-
 @app.get("/")
-def health_check():
-    return {"status": "EWCL Physics API is live", "version": "2.0"}
+def root():
+    return {"message": "Fresh EWCL API v1.0", "status": "clean"}
 
-@app.post("/analyze-pdb")
-async def analyze_pdb(file: UploadFile = File(...)):
-    """Enhanced PDB analysis with physics-based EWCL (independent of B-factor/pLDDT)"""
+@app.post("/analyze")
+async def analyze_structure(file: UploadFile = File(...)):
+    """Analyze PDB structure for collapse likelihood"""
+    
+    if not file.filename.endswith('.pdb'):
+        raise HTTPException(status_code=400, detail="Only PDB files allowed")
+    
     try:
-        # Read PDB content
-        pdb_content = (await file.read()).decode('utf-8')
+        # Save uploaded file
+        content = await file.read()
         
-        # Detect model type
-        model_type = detect_structure_type(pdb_content)
-        metric_used = "pLDDT" if model_type == "alphafold" else "B-factor"
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdb', mode='wb') as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
         
-        # Parse residues using enhanced physics-based EWCL
-        residues = parse_pdb(pdb_content, model_type)
+        # Run analysis
+        results = analyze_pdb(tmp_path)
         
-        if not residues:
-            raise HTTPException(status_code=400, detail="No valid residues found in PDB")
+        if not results:
+            raise HTTPException(status_code=400, detail="No residues found")
         
-        # Annotate with risk levels, hallucination flags, clusters, and DisProt
-        annotated_residues = annotate_residues(residues, metric_used, pdb_content)
-        
-        # Calculate summary statistics
-        cl_scores = [r["cl"] for r in annotated_residues]
-        conf_scores = [r["plddt"] if r["plddt"] else r["b_factor"] for r in annotated_residues]
-        hallucination_count = sum(1 for r in annotated_residues if r["hallucination"])
-        
-        # Add DisProt comparison metrics
-        disprot_metrics = compute_disprot_metrics(annotated_residues)
+        # Calculate stats
+        cl_values = [r['cl'] for r in results]
+        has_plddt = any(r['plddt'] is not None for r in results)
         
         response = {
-            "model_type": model_type,
-            "metric_used": metric_used,
             "filename": file.filename,
-            "n_residues": len(annotated_residues),
-            "avg_cl": round(float(np.mean(cl_scores)), 3),
-            "avg_confidence": round(float(np.mean(conf_scores)), 3),
-            "hallucination_count": hallucination_count,
-            "hallucination_percentage": round((hallucination_count / len(annotated_residues)) * 100, 1),
-            "disprot_metrics": disprot_metrics,
-            "residues": annotated_residues
+            "type": "alphafold" if has_plddt else "experimental",
+            "residue_count": len(results),
+            "avg_cl": round(np.mean(cl_values), 3),
+            "max_cl": round(np.max(cl_values), 3),
+            "unstable_residues": sum(1 for r in results if r['cl'] > 0.6),
+            "residues": results
         }
+        
+        # Cleanup
+        os.unlink(tmp_path)
         
         return JSONResponse(content=response)
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-@app.post("/analyze-hallucination")
-async def analyze_hallucination(file: UploadFile = File(...)):
-    """Analyze PDB file for hallucination detection using EWCL vs confidence mismatch"""
-    try:
-        # Read file content
-        pdb_content = (await file.read()).decode('utf-8')
-        
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdb", mode='w') as tmp:
-            tmp.write(pdb_content)
-            tmp_path = tmp.name
-
-        # Detect structure type
-        structure_type = detect_structure_type(pdb_content)
-        
-        # Run physics-based EWCL model (reuse existing logic)
-        ewcl_results = compute_ewcl_from_pdb(tmp_path)
-        
-        # Compute hallucination scores
-        hallucination_results = compute_hallucination(ewcl_results)
-        
-        # Prepare metadata
-        metadata = {
-            "model_type": structure_type,
-            "metric_used": "pLDDT" if structure_type == "alphafold" else "B-factor",
-            "filename": file.filename,
-            "n_residues": len(hallucination_results),
-            "hallucinated_count": sum(1 for r in hallucination_results if r.get('hallucinated', False)),
-            "avg_hallucination_score": round(np.mean([r['hallucination_score'] for r in hallucination_results]), 3)
-        }
-        
-        # Format output focusing on hallucination metrics
-        hallucination_data = []
-        for r in hallucination_results:
-            hallucination_data.append({
-                "residue_id": r["residue_id"],
-                "chain": r["chain"],
-                "aa": r["aa"],
-                "ewcl": round(r["cl"], 3),
-                "plddt_normalized": round(r["plddt_normalized"], 3),
-                "curvature": round(r["curvature"], 3),
-                "mismatch": round(r["mismatch"], 3),
-                "hallucination_score": round(r["hallucination_score"], 3),
-                "hallucinated": r["hallucinated"]
-            })
-        
-        # Cleanup
-        os.remove(tmp_path)
-        
-        return JSONResponse(content={
-            "hallucination": hallucination_data,
-            "metadata": metadata
-        })
-        
-    except Exception as e:
         if 'tmp_path' in locals():
-            os.remove(tmp_path)
-        raise HTTPException(status_code=500, detail=f"Hallucination analysis failed: {str(e)}")
+            os.unlink(tmp_path)
+        raise HTTPException(status_code=500, detail=str(e))
