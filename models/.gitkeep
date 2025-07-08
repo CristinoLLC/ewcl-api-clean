@@ -1,4 +1,6 @@
-# Placeholder for model files:
-# - ewcl_regressor_model.pkl
-# - ewcl_residue_hallucination_detector_model.pkl  
-# - ewcl_residue_refiner_model.pkl
+# Clean models directory - only keep files needed for 4-endpoint API:
+# - enhanced_ewcl_af.py (physics extractor)
+# - ewcl_regressor_model.pkl (main regressor) 
+# - ewcl_residue_local_high_model.pkl (high refiner)
+# - ewcl_residue_local_high_scaler.pkl (scaler for high model)
+# - hallucination_detector_model.pkl (hallucination detection)
