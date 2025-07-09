@@ -63,14 +63,14 @@ HIGH_MODEL = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_model.pkl", 
 HIGH_SCALER = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_scaler.pkl", "high_scaler")
 HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector_model.pkl", "halluc_model")
 
+# ───────────────────────────────────────────
+# Feature definitions with safe fallbacks
+# ───────────────────────────────────────────
 REG_FEATS = [
     "bfactor",
-    "plddt",
+    "plddt", 
     "bfactor_norm",
     "hydro_entropy",
-    "charge_entropy",
-    "bfactor_curv",
-    "bfactor_curv_entropy",
     "bfactor_curv_flips"
 ]
 
