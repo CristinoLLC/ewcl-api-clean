@@ -100,7 +100,47 @@ HAL_FEATS = [
 ]
 
 # ───────────────────────────────────────────
-# 3)  FastAPI app
+# 3)  ML Prediction Helpers
+# ───────────────────────────────────────────
+def add_main_prediction(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds cl_pred from the main regressor."""
+    if REGRESSOR is None:
+        raise HTTPException(status_code=503, detail="Regressor model not available")
+    if "plddt" not in df.columns:
+        df["plddt"] = df["bfactor"]
+    df["cl_pred"] = REGRESSOR.predict(df[REG_FEATS])
+    return df
+
+def add_refined_prediction(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds cl_refined from the high-confidence model."""
+    if HIGH_MODEL is None or HIGH_SCALER is None:
+        raise HTTPException(status_code=503, detail="High refinement models not available")
+    if "plddt" not in df.columns:
+        df["plddt"] = df["bfactor"]
+    X_scaled = HIGH_SCALER.transform(df[REG_FEATS])
+    df["cl_refined"] = HIGH_MODEL.predict(X_scaled)
+    return df
+
+def add_hallucination_prediction(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds hallucination flags and scores."""
+    if HALLUC_MODEL is None:
+        raise HTTPException(status_code=503, detail="Hallucination model not available")
+    if "cl_pred" not in df.columns:
+        df = add_main_prediction(df)
+    
+    df["cl_diff"] = (df["cl_pred"] - df["cl"]).abs()
+    df["cl_diff_slope"] = np.gradient(df["cl_diff"])
+    df["cl_diff_curv"]  = np.gradient(df["cl_diff_slope"])
+    df["cl_diff_flips"] = (
+        pd.Series(np.sign(df["cl_diff_slope"])).diff().abs().fillna(0)
+    )
+    X = df[HAL_FEATS]
+    df["hallucination"] = HALLUC_MODEL.predict(X)
+    df["halluc_score"]  = HALLUC_MODEL.predict_proba(X)[:, 1]
+    return df
+
+# ───────────────────────────────────────────
+# 4)  FastAPI app
 # ───────────────────────────────────────────
 api = FastAPI(
     title="EWCL Collapse-Likelihood API",
@@ -130,7 +170,8 @@ def health_check():
             "raw-physics": "Physics-only EWCL (no ML)",
             "analyze-ewcl": "Physics + main regressor",
             "refined-ewcl": "High-confidence refiner",
-            "detect-hallucination": "Hallucination detection"
+            "detect-hallucination": "Hallucination detection",
+            "analyze/full": "Full pipeline analysis"
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
@@ -162,6 +203,28 @@ def health():
         "model_dir_path": str(MODEL_DIR)
     }
 
+# ─────────────  NEW ALL-IN-ONE ENDPOINT  ─────────────
+@api.post("/analyze/full")
+async def analyze_full(pdb: UploadFile = File(...)):
+    """
+    Run full pipeline: physics, regressor, refiner, and hallucination detection.
+    """
+    try:
+        df = run_physics(await pdb.read())
+        df = add_main_prediction(df)
+        df = add_refined_prediction(df)
+        df = add_hallucination_prediction(df)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    output_cols = [
+        "chain", "position", "aa", "cl", "cl_pred", 
+        "cl_refined", "hallucination", "halluc_score"
+    ]
+    final_cols = [col for col in output_cols if col in df.columns]
+    
+    return JSONResponse(df[final_cols].to_dict("records"))
+
 # ─────────────  ENDPOINT 1  ─────────────
 @api.post("/raw-physics/")
 async def raw_physics(pdb: UploadFile = File(...)):
@@ -183,30 +246,13 @@ async def analyze_ewcl(pdb: UploadFile = File(...)):
     """
     try:
         df = run_physics(await pdb.read())
-        
-        # Check if regressor is available
-        if REGRESSOR is None:
-            # Fallback: return physics-only results
-            df["cl_pred"] = df["cl"]  # Use physics CL as fallback
-            return JSONResponse(
-                df[["chain", "position", "aa", "cl", "cl_pred"]].to_dict("records")
-            )
-        
-        # Add plddt column for regressor features
-        if "plddt" not in df.columns:
-            df["plddt"] = df["bfactor"]
-        
-        features = ['bfactor', 'plddt', 'bfactor_norm', 'hydro_entropy', 'charge_entropy',
-                   'bfactor_curv', 'bfactor_curv_entropy', 'bfactor_curv_flips']
-        
-        X = df[features]
-        df["cl_pred"] = REGRESSOR.predict(X)
-        
-        return JSONResponse(
-            df[["chain", "position", "aa", "cl", "cl_pred"]].to_dict("records")
-        )
+        df = add_main_prediction(df)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+    return JSONResponse(
+        df[["chain", "position", "aa", "cl", "cl_pred"]].to_dict("records")
+    )
 
 # ─────────────  ENDPOINT 3  ─────────────
 @api.post("/refined-ewcl/")
@@ -216,28 +262,13 @@ async def refined_ewcl(pdb: UploadFile = File(...)):
     """
     try:
         df = run_physics(await pdb.read())
-        
-        # Check if high model is available
-        if HIGH_MODEL is None or HIGH_SCALER is None:
-            # Fallback: return physics-only results
-            df["cl_refined"] = df["cl"]  # Use physics CL as fallback
-            return JSONResponse(
-                df[["chain", "position", "aa", "cl", "cl_refined"]].to_dict("records")
-            )
-        
-        # Add plddt column for high model features
-        if "plddt" not in df.columns:
-            df["plddt"] = df["bfactor"]
-        
-        X = df[HIGH_FEATS]
-        X_scaled = HIGH_SCALER.transform(X)
-        df["cl_refined"] = HIGH_MODEL.predict(X_scaled)
-        
-        return JSONResponse(
-            df[["chain", "position", "aa", "cl", "cl_refined"]].to_dict("records")
-        )
+        df = add_refined_prediction(df)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+    return JSONResponse(
+        df[["chain", "position", "aa", "cl", "cl_refined"]].to_dict("records")
+    )
 
 # ─────────────  ENDPOINT 4  ─────────────
 @api.post("/detect-hallucination/")
@@ -247,40 +278,11 @@ async def detect_hallucination(pdb: UploadFile = File(...)):
     """
     try:
         df = run_physics(await pdb.read())
-        
-        # Check if models are available
-        if REGRESSOR is None or HALLUC_MODEL is None:
-            # Fallback: return no hallucinations detected
-            df["cl_pred"] = df["cl"]
-            df["hallucination"] = 0
-            df["halluc_score"] = 0.0
-            return JSONResponse(
-                df[["chain", "position", "aa", "cl", "cl_pred",
-                    "hallucination", "halluc_score"]].to_dict("records")
-            )
-        
-        # Add plddt column for regressor features
-        if "plddt" not in df.columns:
-            df["plddt"] = df["bfactor"]
-        
-        df["cl_pred"] = REGRESSOR.predict(df[REG_FEATS])
-
-        #  Compute diff + derivatives for hallucination features
-        df["cl_diff"] = (df["cl_pred"] - df["cl"]).abs()
-        df["cl_diff_slope"] = np.gradient(df["cl_diff"])
-        df["cl_diff_curv"]  = np.gradient(df["cl_diff_slope"])
-        df["cl_diff_flips"] = (
-            pd.Series(np.sign(df["cl_diff_slope"])).diff().abs().fillna(0)
-        )
-
-        #  Classify
-        X = df[HAL_FEATS]
-        df["hallucination"] = HALLUC_MODEL.predict(X)
-        df["halluc_score"]  = HALLUC_MODEL.predict_proba(X)[:, 1]
-
-        return JSONResponse(
-            df[["chain", "position", "aa", "cl", "cl_pred",
-                "hallucination", "halluc_score"]].to_dict("records")
-        )
+        df = add_hallucination_prediction(df)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    return JSONResponse(
+        df[["chain", "position", "aa", "cl", "cl_pred",
+            "hallucination", "halluc_score"]].to_dict("records")
+    )
