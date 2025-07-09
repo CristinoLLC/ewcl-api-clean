@@ -240,6 +240,33 @@ def add_hallucination_prediction(df: pd.DataFrame) -> pd.DataFrame:
         raise RuntimeError(f"❌ add_hallucination_prediction failed: {e}")
 
 # ───────────────────────────────────────────
+# Individual Model Functions
+# ───────────────────────────────────────────
+async def run_physics_only(file: UploadFile) -> dict:
+    """Run only the physics-based EWCL extractor"""
+    df = run_physics(await file.read())
+    return df[["chain", "position", "aa", "cl", "bfactor", "plddt"]].to_dict("records")
+
+async def run_regressor_model(file: UploadFile) -> dict:
+    """Run physics + main regressor model"""
+    df = run_physics(await file.read())
+    df = add_main_prediction(df)
+    return df[["chain", "position", "aa", "cl", "cl_pred", "bfactor", "plddt"]].to_dict("records")
+
+async def run_refined_model(file: UploadFile) -> dict:
+    """Run physics + refined high-confidence model"""
+    df = run_physics(await file.read())
+    df = add_refined_prediction(df)
+    return df[["chain", "position", "aa", "cl", "cl_refined", "bfactor", "plddt"]].to_dict("records")
+
+async def run_hallucination_model(file: UploadFile) -> dict:
+    """Run physics + regressor + hallucination detection"""
+    df = run_physics(await file.read())
+    df = add_main_prediction(df)
+    df = add_hallucination_prediction(df)
+    return df[["chain", "position", "aa", "cl", "cl_pred", "hallucination", "halluc_score", "bfactor", "plddt"]].to_dict("records")
+
+# ───────────────────────────────────────────
 # 4)  FastAPI app
 # ───────────────────────────────────────────
 api = FastAPI(
@@ -289,6 +316,12 @@ def health():
     
     return {
         "status": "ok",
+        "endpoints": {
+            "analyze/raw": "Physics-only EWCL",
+            "analyze/regressor": "Physics + main regressor", 
+            "analyze/refined": "Physics + refined model",
+            "analyze/hallucination": "Physics + hallucination detection"
+        },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
             "refiner": HIGH_MODEL is not None,
@@ -303,86 +336,85 @@ def health():
         "model_dir_path": str(MODEL_DIR)
     }
 
-# ─────────────  NEW ALL-IN-ONE ENDPOINT  ─────────────
-@api.post("/analyze/full")
-async def analyze_full(pdb: UploadFile = File(...)):
-    """
-    Run full pipeline: physics, regressor, refiner, and hallucination detection.
-    """
+# ───────────────────────────────────────────
+# Clean Separate Endpoints
+# ───────────────────────────────────────────
+
+@api.post("/analyze/raw")
+async def analyze_raw(file: UploadFile = File(...)):
+    """Physics-only EWCL analysis"""
     try:
-        df = run_physics(await pdb.read())
-        df = add_main_prediction(df)
-        df = add_refined_prediction(df)
-        df = add_hallucination_prediction(df)
+        result = await run_physics_only(file)
+        return JSONResponse(content=result)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    output_cols = [
-        "chain", "position", "aa", "cl", "cl_pred", 
-        "cl_refined", "hallucination", "halluc_score"
-    ]
-    final_cols = [col for col in output_cols if col in df.columns]
-    
-    return JSONResponse(df[final_cols].to_dict("records"))
+@api.post("/analyze/regressor")
+async def analyze_regressor(file: UploadFile = File(...)):
+    """Physics + main regressor model"""
+    try:
+        result = await run_regressor_model(file)
+        return JSONResponse(content=result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-# ─────────────  ENDPOINT 1  ─────────────
+@api.post("/analyze/refined")
+async def analyze_refined(file: UploadFile = File(...)):
+    """Physics + refined high-confidence model"""
+    try:
+        result = await run_refined_model(file)
+        return JSONResponse(content=result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api.post("/analyze/hallucination")
+async def analyze_hallucination(file: UploadFile = File(...)):
+    """Physics + regressor + hallucination detection"""
+    try:
+        result = await run_hallucination_model(file)
+        return JSONResponse(content=result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ───────────────────────────────────────────
+# Legacy endpoints (keep for compatibility)
+# ───────────────────────────────────────────
+
 @api.post("/raw-physics/")
 async def raw_physics(pdb: UploadFile = File(...)):
-    """
-    Return physics-only EWCL (`cl`) with chain, position, and aa.
-    """
-    try:
-        df = run_physics(await pdb.read())
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Legacy: Physics-only EWCL"""
+    return await analyze_raw(pdb)
 
-    return JSONResponse(df[["chain", "position", "aa", "cl"]].to_dict("records"))
-
-# ─────────────  ENDPOINT 2  ─────────────
 @api.post("/analyze-ewcl/")
 async def analyze_ewcl(pdb: UploadFile = File(...)):
-    """
-    Physics + main regressor (`cl_pred`).
-    """
+    """Legacy: Physics + main regressor"""
+    return await analyze_regressor(pdb)
+
+@api.post("/refined-ewcl/")
+async def refined_ewcl(pdb: UploadFile = File(...)):
+    """Legacy: Physics + refined model"""
+    return await analyze_refined(pdb)
+
+@api.post("/detect-hallucination/")
+async def detect_hallucination(pdb: UploadFile = File(...)):
+    """Legacy: Hallucination detection"""
+    return await analyze_hallucination(pdb)
+
+@api.post("/analyze/full")
+async def analyze_full(pdb: UploadFile = File(...)):
+    """Legacy: All models at once"""
     try:
         df = run_physics(await pdb.read())
         df = add_main_prediction(df)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    return JSONResponse(
-        df[["chain", "position", "aa", "cl", "cl_pred"]].to_dict("records")
-    )
-
-# ─────────────  ENDPOINT 3  ─────────────
-@api.post("/refined-ewcl/")
-async def refined_ewcl(pdb: UploadFile = File(...)):
-    """
-    Extra-trust refiner (`cl_refined`) using the high-correlation model.
-    """
-    try:
-        df = run_physics(await pdb.read())
         df = add_refined_prediction(df)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    return JSONResponse(
-        df[["chain", "position", "aa", "cl", "cl_refined"]].to_dict("records")
-    )
-
-# ─────────────  ENDPOINT 4  ─────────────
-@api.post("/detect-hallucination/")
-async def detect_hallucination(pdb: UploadFile = File(...)):
-    """
-    Flags hallucinated residues from combined physics + ML features.
-    """
-    try:
-        df = run_physics(await pdb.read())
         df = add_hallucination_prediction(df)
+        
+        output_cols = [
+            "chain", "position", "aa", "cl", "cl_pred", 
+            "cl_refined", "hallucination", "halluc_score", "bfactor", "plddt"
+        ]
+        final_cols = [col for col in output_cols if col in df.columns]
+        
+        return JSONResponse(df[final_cols].to_dict("records"))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    return JSONResponse(
-        df[["chain", "position", "aa", "cl", "cl_pred",
-            "hallucination", "halluc_score"]].to_dict("records")
-    )
