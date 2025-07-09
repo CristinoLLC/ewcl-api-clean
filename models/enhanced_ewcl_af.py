@@ -60,21 +60,21 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
     parser = PDBParser(QUIET=True)
     model = parser.get_structure("X", pdb_path)[0]
 
-    bfac, aa, plddt = [], [], []
+    bfac_raw, aa, plddt_raw = [], [], []
     chain_ids, positions = [], []
     for res in model.get_residues():
         if "CA" not in res:
             continue
         beta = res["CA"].get_bfactor()
-        bfac.append(beta)
-        plddt.append(beta if is_af else np.nan)
+        bfac_raw.append(beta)
+        # AlphaFold stores pLDDT in B-factor column
+        plddt_raw.append(beta if is_af else None)
         aa.append(res.get_resname())
         chain_ids.append(res.get_parent().id)
         positions.append(res.id[1])
 
-    bfac = np.array(bfac)
-    plddt = np.array(plddt)
-
+    bfac = np.array(bfac_raw)
+    
     bfac_norm = _norm(bfac)
     hydro = np.array([HYDROPATHY.get(a, 0) for a in aa])
     charge = np.array([CHARGE.get(a, 0) for a in aa])
@@ -97,15 +97,18 @@ def compute_curvature_features(pdb_path, win_ent=5, win_curv=5):
     cl = (0.35 * hydro_ent_n + 0.35 * charge_ent_n + 0.30 * bfac_norm)
 
     recs = []
+    basename = os.path.splitext(os.path.basename(pdb_path))[0]
     for i in range(len(bfac)):
         recs.append({
-            "protein": os.path.splitext(os.path.basename(pdb_path))[0],
+            "protein": basename,
             "residue_id": i + 1,
             "chain": chain_ids[i],
             "position": positions[i],
             "aa": aa[i],
-            "bfactor": float(bfac[i]),
-            "plddt": None if np.isnan(plddt[i]) else float(plddt[i]),
+            # keep raw values for correlation only
+            "bfactor": None if is_af else float(bfac_raw[i]),
+            "plddt": None if not is_af else float(plddt_raw[i]),
+            # existing fields
             "cl": round(float(cl[i]), 3),
             "bfactor_norm": float(bfac_norm[i]),
             "hydro_entropy": float(hydro_ent[i]),
