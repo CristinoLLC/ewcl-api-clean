@@ -199,7 +199,7 @@ def add_refined_prediction(df: pd.DataFrame) -> pd.DataFrame:
 def add_hallucination_prediction(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add hallucination detection predictions to the DataFrame.
-    Requires cl_pred to be already calculated.
+    Handles missing values and ensures robust prediction.
     """
     try:
         if HALLUC_MODEL is None:
@@ -221,23 +221,42 @@ def add_hallucination_prediction(df: pd.DataFrame) -> pd.DataFrame:
             "bfactor_curv", "bfactor_curv_entropy", "bfactor_curv_flips"
         ]
 
+        # Sanity check - add missing columns with defaults
+        for col in expected_features:
+            if col not in df.columns:
+                print(f"⚠️ Missing feature {col}, filling with 0.0")
+                df[col] = 0.0
+
         # Only use features that exist in df
         available_features = [f for f in expected_features if f in df.columns]
         if not available_features:
             raise ValueError("No expected features found in input DataFrame.")
+
+        X = df[available_features].copy()
+        
+        # ✅ Handle NaNs before prediction
+        if X.isnull().values.any():
+            print("⚠️ NaNs detected in hallucination input. Filling with 0.")
+            X = X.fillna(0)
         
         print(f"📊 Using features for hallucination: {available_features}")
-        if len(available_features) != len(expected_features):
-            missing = set(expected_features) - set(available_features)
-            print(f"⚠️ Missing features: {missing}")
 
-        X = df[available_features]
+        # Predict hallucination likelihood
         df["hallucination"] = HALLUC_MODEL.predict(X)
-        df["halluc_score"]  = HALLUC_MODEL.predict_proba(X)[:, 1]
+        df["halluc_score"] = HALLUC_MODEL.predict_proba(X)[:, 1]
+        
+        # Add logging for detected hallucinations
+        hallucinated = df[df["hallucination"] == 1]
+        print(f"✅ Hallucinated residues: {len(hallucinated)} / {len(df)}")
+        
         return df
 
     except Exception as e:
-        raise RuntimeError(f"❌ add_hallucination_prediction failed: {e}")
+        print(f"❌ Hallucination prediction failed: {e}")
+        # Fallback: add empty hallucination columns
+        df["hallucination"] = 0
+        df["halluc_score"] = 0.0
+        return df
 
 # ───────────────────────────────────────────
 # Individual Model Functions
@@ -245,13 +264,42 @@ def add_hallucination_prediction(df: pd.DataFrame) -> pd.DataFrame:
 async def run_physics_only(file: UploadFile) -> dict:
     """Run only the physics-based EWCL extractor"""
     df = run_physics(await file.read())
-    return df[["chain", "position", "aa", "cl", "bfactor", "plddt"]].to_dict("records")
+    
+    # Auto-detect if we can run hallucination
+    can_hallucinate = ("plddt" in df.columns and df["plddt"].notna().any()) or \
+                     ("bfactor" in df.columns and df["bfactor"].notna().any())
+    
+    result_cols = ["chain", "position", "aa", "cl", "bfactor", "plddt"]
+    
+    # Optionally add hallucination if data supports it
+    if can_hallucinate and REGRESSOR is not None and HALLUC_MODEL is not None:
+        try:
+            df = add_main_prediction(df)
+            df = add_hallucination_prediction(df)
+            result_cols.extend(["hallucination", "halluc_score"])
+            print("🔬 Auto-added hallucination detection to physics analysis")
+        except Exception as e:
+            print(f"⚠️ Could not add hallucination to physics analysis: {e}")
+    
+    return df[result_cols].to_dict("records")
 
 async def run_regressor_model(file: UploadFile) -> dict:
     """Run physics + main regressor model"""
     df = run_physics(await file.read())
     df = add_main_prediction(df)
-    return df[["chain", "position", "aa", "cl", "cl_pred", "bfactor", "plddt"]].to_dict("records")
+    
+    result_cols = ["chain", "position", "aa", "cl", "cl_pred", "bfactor", "plddt"]
+    
+    # Auto-add hallucination if possible
+    if HALLUC_MODEL is not None:
+        try:
+            df = add_hallucination_prediction(df)
+            result_cols.extend(["hallucination", "halluc_score"])
+            print("🔬 Auto-added hallucination detection to regressor analysis")
+        except Exception as e:
+            print(f"⚠️ Could not add hallucination to regressor analysis: {e}")
+    
+    return df[result_cols].to_dict("records")
 
 async def run_refined_model(file: UploadFile) -> dict:
     """Run physics + refined high-confidence model"""
