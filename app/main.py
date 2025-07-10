@@ -385,19 +385,19 @@ async def analyze_pdb_legacy(pdb: UploadFile = File(...)):
 api.include_router(api_router)
 
 @api.get("/")
-def health_check(): with /api prefix
+def health_check():
     return {
         "status": "EWCL API v2025.0.1", 
-        "endpoints": {aw")
-            "raw-physics": "Physics-only EWCL (no ML)",
-            "analyze-ewcl": "Physics + main regressor",
-            "refined-ewcl": "High-confidence refiner",
-            "detect-hallucination": "Hallucination detection",
-            "analyze/full": "Full pipeline analysis"
+        "endpoints": {
+            "api/analyze/raw": "Physics-only EWCL (no ML)",
+            "api/analyze/regressor": "Physics + main regressor",
+            "api/analyze/refined": "High-confidence refiner",
+            "api/analyze/hallucination": "Hallucination detection",
+            "api/analyze-pdb": "Legacy analyze-pdb endpoint"
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
-            "high_model": HIGH_MODEL is not None,or")
+            "high_model": HIGH_MODEL is not None,
             "high_scaler": HIGH_SCALER is not None,
             "halluc_model": HALLUC_MODEL is not None
         }
@@ -406,16 +406,16 @@ def health_check(): with /api prefix
 @api.get("/health")
 def health():
     model_files = []
-    if MODEL_DIR.exists():ed")
+    if MODEL_DIR.exists():
         model_files = [f.name for f in MODEL_DIR.glob("*")]
     
     return {
         "status": "ok",
         "endpoints": {
-            "analyze/raw": "Physics-only EWCL",
-            "analyze/regressor": "Physics + main regressor", 
-            "analyze/refined": "Physics + refined model",
-            "analyze/hallucination": "Physics + hallucination detection"on")
+            "api/analyze/raw": "Physics-only EWCL",
+            "api/analyze/regressor": "Physics + main regressor", 
+            "api/analyze/refined": "Physics + refined model",
+            "api/analyze/hallucination": "Physics + hallucination detection"
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
@@ -424,57 +424,30 @@ def health():
             "scaler": HIGH_SCALER is not None
         },
         "version": "2025.0.1",
-        "python_version": "3.13.4",patibility
+        "python_version": "3.13.4",
         "scikit_learn_version": "1.6.1 (pinned)",
-        "model_dir_exists": MODEL_DIR.exists(),ile = File(...)):
-        "model_files": model_files,    """Physics-only EWCL analysis (no prefix)"""
-        "model_dir_path": str(MODEL_DIR)aw(file)
+        "model_dir_exists": MODEL_DIR.exists(),
+        "model_files": model_files,
+        "model_dir_path": str(MODEL_DIR)
     }
 
-# ───────────────────────────────────────────efix(file: UploadFile = File(...)):
-# Legacy endpoints (keep for compatibility)    """Physics + main regressor model (no prefix)"""
-# ───────────────────────────────────────────gressor(file)
+# ───────────────────────────────────────────
+# Legacy endpoints (keep for compatibility)
+# ───────────────────────────────────────────
 
 @api.post("/raw-physics/")
-async def raw_physics(pdb: UploadFile = File(...)):e: UploadFile = File(...)):
-    """Legacy: Physics-only EWCL"""    """Physics + refined high-confidence model (no prefix)"""
-    return await analyze_raw(pdb)fined(file)
+async def raw_physics(pdb: UploadFile = File(...)):
+    """Legacy: Physics-only EWCL"""
+    return await analyze_raw(pdb)
 
 @api.post("/analyze-ewcl/")
-async def analyze_ewcl(pdb: UploadFile = File(...)):efix(file: UploadFile = File(...)):
-    """Legacy: Physics + main regressor"""    """Physics + regressor + hallucination detection (no prefix)"""
-    return await analyze_regressor(pdb)ion(file)
+async def analyze_ewcl(pdb: UploadFile = File(...)):
+    """Legacy: Physics + main regressor"""
+    return await analyze_regressor(pdb)
 
 @api.post("/refined-ewcl/")
 async def refined_ewcl(pdb: UploadFile = File(...)):
-    """Legacy: Physics + refined model"""async def analyze_pdb_legacy(pdb: UploadFile = File(...)):
-    return await analyze_refined(pdb) endpoint"""
-
-@api.post("/detect-hallucination/")
-async def detect_hallucination(pdb: UploadFile = File(...)):─────────────────────────────────────
-    """Legacy: Hallucination detection""")
-    return await analyze_hallucination(pdb)─────────
-
-@api.post("/analyze/full")
-async def analyze_full(pdb: UploadFile = File(...)):f raw_physics(pdb: UploadFile = File(...)):
-    """Legacy: All models at once"""only EWCL"""
-    try:
-        df = run_physics(await pdb.read())
-        df = add_main_prediction(df)("/analyze-ewcl/")
-        df = add_refined_prediction(df)
-        df = add_hallucination_prediction(df)egacy: Physics + main regressor"""
-        
-        output_cols = [
-            "chain", "position", "aa", "cl", "cl_pred", 
-            "cl_refined", "hallucination", "halluc_score", "bfactor", "plddt"async def refined_ewcl(pdb: UploadFile = File(...)):
-
-
-
-
-
-
-
-        raise HTTPException(status_code=400, detail=str(e))    except Exception as e:        return JSONResponse(df[final_cols].to_dict("records"))                final_cols = [col for col in output_cols if col in df.columns]        ]    """Legacy: Physics + refined model"""
+    """Legacy: Physics + refined model"""
     return await analyze_refined(pdb)
 
 @api.post("/detect-hallucination/")
