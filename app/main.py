@@ -34,18 +34,23 @@ def run_physics(pdb_bytes: bytes) -> pd.DataFrame:
 MODEL_DIR = Path(__file__).resolve().parents[1] / "models"
 
 def load_model_safely(model_path, model_name):
-    """Safely load model with detailed error logging"""
+    """Safely load model with detailed error logging and fallbacks"""
     try:
         print(f"📁 Attempting to load {model_name} from: {model_path}")
         print(f"📊 File exists: {model_path.exists()}")
         if model_path.exists():
             print(f"📏 File size: {model_path.stat().st_size} bytes")
         
-        model = joblib.load(model_path)
+        # Suppress sklearn version warnings temporarily
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+            model = joblib.load(model_path)
+        
         print(f"✅ Successfully loaded {model_name}")
         return model
-    except FileNotFoundError:
-        print(f"❌ File not found: {model_path}")
+    except ModuleNotFoundError as e:
+        print(f"❌ Module error loading {model_name}: {e}")
+        print(f"💡 This is likely a scikit-learn/numpy version mismatch")
         return None
     except Exception as e:
         print(f"⚠️ Failed to load {model_name}: {type(e).__name__}: {e}")
@@ -62,6 +67,25 @@ REGRESSOR = load_model_safely(MODEL_DIR / "ewcl_regressor_model.pkl", "regressor
 HIGH_MODEL = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_model.pkl", "high_model") 
 HIGH_SCALER = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_scaler.pkl", "high_scaler")
 HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector_model.pkl", "halluc_model")
+
+# Print startup summary
+print("\n" + "="*50)
+print("🚀 EWCL API STARTUP SUMMARY")
+print("="*50)
+print(f"✅ Physics extractor: READY")
+print(f"{'✅' if REGRESSOR else '❌'} Regressor model: {'LOADED' if REGRESSOR else 'FAILED (using physics fallback)'}")
+print(f"{'✅' if HIGH_MODEL else '❌'} High refinement: {'LOADED' if HIGH_MODEL else 'FAILED (using physics fallback)'}")
+print(f"{'✅' if HALLUC_MODEL else '❌'} Hallucination detector: {'LOADED' if HALLUC_MODEL else 'FAILED (using physics fallback)'}")
+print("\n📡 Available endpoints:")
+print("  • /api/analyze/raw - Physics-only EWCL")
+print("  • /api/analyze/regressor - Physics + ML regressor (fallback if model unavailable)")
+print("  • /api/analyze/refined - Physics + refined model (fallback if model unavailable)")
+print("  • /api/analyze/hallucination - Physics + hallucination detection (fallback if model unavailable)")
+print("  • /health - Health check and model status")
+print("\n🚀 LOCAL DEVELOPMENT:")
+print("  Run with: uvicorn app.main:app --reload --port 8000")
+print("  Test at: http://localhost:8000/health")
+print("="*50)
 
 # ───────────────────────────────────────────
 # Feature definitions with safe fallbacks
@@ -265,66 +289,99 @@ async def run_physics_only(file: UploadFile) -> dict:
     """Run only the physics-based EWCL extractor"""
     df = run_physics(await file.read())
     
-    # Auto-detect if we can run hallucination
-    can_hallucinate = ("plddt" in df.columns and df["plddt"].notna().any()) or \
-                     ("bfactor" in df.columns and df["bfactor"].notna().any())
-    
+    # Always return physics results, with optional ML enhancement
     result_cols = ["chain", "position", "aa", "cl", "bfactor", "plddt"]
     
-    # Optionally add hallucination if data supports it
-    if can_hallucinate and REGRESSOR is not None and HALLUC_MODEL is not None:
+    # Only try ML if models are available
+    if REGRESSOR is not None and HALLUC_MODEL is not None:
         try:
             df = add_main_prediction(df)
             df = add_hallucination_prediction(df)
-            result_cols.extend(["hallucination", "halluc_score"])
-            print("🔬 Auto-added hallucination detection to physics analysis")
+            result_cols.extend(["cl_pred", "hallucination", "halluc_score"])
+            print("🔬 Auto-added ML predictions to physics analysis")
         except Exception as e:
-            print(f"⚠️ Could not add hallucination to physics analysis: {e}")
+            print(f"⚠️ ML enhancement failed, returning physics-only: {e}")
+    else:
+        print("📊 Models not available, returning physics-only results")
     
-    return df[result_cols].to_dict("records")
+    # Filter to only available columns
+    available_cols = [col for col in result_cols if col in df.columns]
+    return df[available_cols].to_dict("records")
 
 async def run_regressor_model(file: UploadFile) -> dict:
-    """Run physics + main regressor model"""
+    """Run physics + main regressor model (with fallback)"""
     df = run_physics(await file.read())
-    df = add_main_prediction(df)
     
-    result_cols = ["chain", "position", "aa", "cl", "cl_pred", "bfactor", "plddt"]
+    if REGRESSOR is None:
+        print("⚠️ Regressor not available, returning physics-only")
+        return df[["chain", "position", "aa", "cl", "bfactor", "plddt"]].to_dict("records")
     
-    # Auto-add hallucination if possible
-    if HALLUC_MODEL is not None:
-        try:
-            df = add_hallucination_prediction(df)
-            result_cols.extend(["hallucination", "halluc_score"])
-            print("🔬 Auto-added hallucination detection to regressor analysis")
-        except Exception as e:
-            print(f"⚠️ Could not add hallucination to regressor analysis: {e}")
+    try:
+        df = add_main_prediction(df)
+        result_cols = ["chain", "position", "aa", "cl", "cl_pred", "bfactor", "plddt"]
+        
+        # Auto-add hallucination if possible
+        if HALLUC_MODEL is not None:
+            try:
+                df = add_hallucination_prediction(df)
+                result_cols.extend(["hallucination", "halluc_score"])
+            except Exception as e:
+                print(f"⚠️ Hallucination detection failed: {e}")
+        
+        available_cols = [col for col in result_cols if col in df.columns]
+        return df[available_cols].to_dict("records")
     
-    return df[result_cols].to_dict("records")
+    except Exception as e:
+        print(f"⚠️ Regressor failed, falling back to physics-only: {e}")
+        return df[["chain", "position", "aa", "cl", "bfactor", "plddt"]].to_dict("records")
 
 async def run_refined_model(file: UploadFile) -> dict:
-    """Run physics + refined high-confidence model"""
+    """Run physics + refined model (with fallback)"""
     df = run_physics(await file.read())
-    df = add_refined_prediction(df)
-    return df[["chain", "position", "aa", "cl", "cl_refined", "bfactor", "plddt"]].to_dict("records")
+    
+    if HIGH_MODEL is None or HIGH_SCALER is None:
+        print("⚠️ Refined model not available, returning physics-only")
+        return df[["chain", "position", "aa", "cl", "bfactor", "plddt"]].to_dict("records")
+    
+    try:
+        df = add_refined_prediction(df)
+        return df[["chain", "position", "aa", "cl", "cl_refined", "bfactor", "plddt"]].to_dict("records")
+    except Exception as e:
+        print(f"⚠️ Refined model failed, falling back to physics-only: {e}")
+        return df[["chain", "position", "aa", "cl", "bfactor", "plddt"]].to_dict("records")
 
 async def run_hallucination_model(file: UploadFile) -> dict:
-    """Run physics + regressor + hallucination detection"""
+    """Run hallucination detection (with fallback)"""
     df = run_physics(await file.read())
-    df = add_main_prediction(df)
-    df = add_hallucination_prediction(df)
-    return df[["chain", "position", "aa", "cl", "cl_pred", "hallucination", "halluc_score", "bfactor", "plddt"]].to_dict("records")
+    
+    if REGRESSOR is None or HALLUC_MODEL is None:
+        print("⚠️ Hallucination models not available, returning physics-only")
+        df["hallucination"] = 0
+        df["halluc_score"] = 0.0
+        return df[["chain", "position", "aa", "cl", "hallucination", "halluc_score", "bfactor", "plddt"]].to_dict("records")
+    
+    try:
+        df = add_main_prediction(df)
+        df = add_hallucination_prediction(df)
+        return df[["chain", "position", "aa", "cl", "cl_pred", "hallucination", "halluc_score", "bfactor", "plddt"]].to_dict("records")
+    except Exception as e:
+        print(f"⚠️ Hallucination detection failed, adding empty values: {e}")
+        df["cl_pred"] = df["cl"]  # Fallback
+        df["hallucination"] = 0
+        df["halluc_score"] = 0.0
+        return df[["chain", "position", "aa", "cl", "cl_pred", "hallucination", "halluc_score", "bfactor", "plddt"]].to_dict("records")
 
 # ───────────────────────────────────────────
-# 4)  FastAPI app
+# 4)  FastAPI app (renamed for uvicorn compatibility)
 # ───────────────────────────────────────────
-api = FastAPI(
+app = FastAPI(
     title="EWCL Collapse-Likelihood API",
     version="2025.0.1",
     description="Physics-based + ML refined EWCL with hallucination flags",
 )
 
 # CORS middleware
-api.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://www.ewclx.com",
@@ -382,9 +439,9 @@ async def analyze_pdb_legacy(pdb: UploadFile = File(...)):
     return await analyze_raw(pdb)
 
 # Include the router
-api.include_router(api_router)
+app.include_router(api_router)
 
-@api.get("/")
+@app.get("/")
 def health_check():
     return {
         "status": "EWCL API v2025.0.1", 
@@ -403,7 +460,7 @@ def health_check():
         }
     }
 
-@api.get("/health")
+@app.get("/health")
 def health():
     model_files = []
     if MODEL_DIR.exists():
@@ -435,27 +492,27 @@ def health():
 # Legacy endpoints (keep for compatibility)
 # ───────────────────────────────────────────
 
-@api.post("/raw-physics/")
+@app.post("/raw-physics/")
 async def raw_physics(pdb: UploadFile = File(...)):
     """Legacy: Physics-only EWCL"""
     return await analyze_raw(pdb)
 
-@api.post("/analyze-ewcl/")
+@app.post("/analyze-ewcl/")
 async def analyze_ewcl(pdb: UploadFile = File(...)):
     """Legacy: Physics + main regressor"""
     return await analyze_regressor(pdb)
 
-@api.post("/refined-ewcl/")
+@app.post("/refined-ewcl/")
 async def refined_ewcl(pdb: UploadFile = File(...)):
     """Legacy: Physics + refined model"""
     return await analyze_refined(pdb)
 
-@api.post("/detect-hallucination/")
+@app.post("/detect-hallucination/")
 async def detect_hallucination(pdb: UploadFile = File(...)):
     """Legacy: Hallucination detection"""
     return await analyze_hallucination(pdb)
 
-@api.post("/analyze/full")
+@app.post("/analyze/full")
 async def analyze_full(pdb: UploadFile = File(...)):
     """Legacy: All models at once"""
     try:
@@ -473,3 +530,6 @@ async def analyze_full(pdb: UploadFile = File(...)):
         return JSONResponse(df[final_cols].to_dict("records"))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# Keep api reference for backward compatibility
+api = app
