@@ -500,6 +500,96 @@ async def analyze_pdb_legacy(pdb: UploadFile = File(...)):
 # Include the router
 app.include_router(api_router)
 
+@app.post("/analyze-pdb")
+async def analyze_pdb_direct(file: UploadFile = File(...)):
+    """
+    Direct analyze-pdb endpoint (without /api prefix)
+    Unified analysis: Physics + Hallucination detection in single call
+    """
+    try:
+        print(f"📥 Received file: {file.filename}, content-type: {file.content_type}")
+        
+        # Run physics-based EWCL analysis
+        df = run_physics(await file.read())
+        print(f"📊 Physics analysis completed: {len(df)} residues")
+        print(f"🔍 Available columns: {list(df.columns)}")
+        
+        # Map physics extractor field names to API field names
+        field_mapping = {
+            "residue_id": "position",
+            "protein": "protein"
+        }
+        
+        # Apply field mapping
+        for old_name, new_name in field_mapping.items():
+            if old_name in df.columns and new_name not in df.columns:
+                df[new_name] = df[old_name]
+                print(f"🔄 Mapped {old_name} -> {new_name}")
+        
+        # Always include ALL physics results + metadata
+        result_cols = [
+            "protein", "chain", "position", "aa", "cl", "bfactor", "plddt", 
+            "bfactor_norm", "hydro_entropy", "charge_entropy",
+            "bfactor_curv", "bfactor_curv_entropy", "bfactor_curv_flips"
+        ]
+        
+        # Add hallucination detection if models are available
+        if REGRESSOR is not None and HALLUC_MODEL is not None:
+            try:
+                # Run ML regressor first
+                df = add_main_prediction(df)
+                # Then run hallucination detection
+                df = add_hallucination_prediction(df)
+                
+                # Add hallucination results to output
+                result_cols.extend(["cl_pred", "hallucination", "halluc_score"])
+                
+                # Add human-readable hallucination labels
+                df["hallucination_label"] = df["halluc_score"].apply(
+                    lambda x: "Likely" if x > 0.7 else "Possible" if x > 0.3 else "Unlikely"
+                )
+                result_cols.append("hallucination_label")
+                
+                print("🔬 Added unified physics + hallucination analysis")
+                
+            except Exception as e:
+                print(f"⚠️ Hallucination detection failed, returning physics-only: {e}")
+                # Add empty hallucination columns as fallback
+                df["hallucination"] = 0
+                df["halluc_score"] = 0.0
+                df["hallucination_label"] = "Unknown"
+                result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
+        else:
+            print("📊 ML models not available, returning physics-only")
+            # Add empty hallucination columns
+            df["hallucination"] = 0
+            df["halluc_score"] = 0.0
+            df["hallucination_label"] = "Unknown"
+            result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
+        
+        # Add stability note based on physics CL score
+        df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
+        result_cols.append("note")
+        
+        # Filter to only available columns and return
+        available_cols = [col for col in result_cols if col in df.columns]
+        missing_cols = [col for col in result_cols if col not in df.columns]
+        
+        if missing_cols:
+            print(f"⚠️ Missing expected columns: {missing_cols}")
+            print(f"📋 Available columns: {available_cols}")
+        
+        result = df[available_cols].to_dict("records")
+        
+        print(f"✅ Returning {len(result)} residues with {len(available_cols)} features")
+        print(f"📊 First residue sample: {result[0] if result else 'No data'}")
+        
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        print(f"❌ analyze-pdb endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
 @app.get("/")
 def health_check():
     return {
@@ -508,6 +598,7 @@ def health_check():
         "endpoints": {
             "GET /": "Health check",
             "GET /health": "Detailed health status",
+            "POST /analyze-pdb": "Direct unified analysis endpoint",
             "POST /api/analyze/raw": "Physics-only EWCL",
             "POST /api/analyze/regressor": "Physics + ML regressor",
             "POST /api/analyze/refined": "Physics + refined model",
