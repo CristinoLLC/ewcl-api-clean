@@ -485,12 +485,17 @@ async def analyze_pdb_legacy(pdb: UploadFile = File(...)):
         df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
         result_cols.append("note")
         
+        # Add protein name from physics extractor
+        if "protein" in df.columns:
+            result_cols.insert(0, "protein")
+        
         # Filter to only available columns and return
         available_cols = [col for col in result_cols if col in df.columns]
         return JSONResponse(content=df[available_cols].to_dict("records"))
         
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        print(f"❌ analyze-pdb endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 # Include the router
 app.include_router(api_router)
@@ -499,12 +504,15 @@ app.include_router(api_router)
 def health_check():
     return {
         "status": "EWCL API v2025.0.1", 
+        "message": "API is running successfully",
         "endpoints": {
-            "api/analyze/raw": "Physics-only EWCL (no ML)",
-            "api/analyze/regressor": "Physics + main regressor",
-            "api/analyze/refined": "High-confidence refiner",
-            "api/analyze/hallucination": "Hallucination detection",
-            "api/analyze-pdb": "Legacy analyze-pdb endpoint",
+            "GET /": "Health check",
+            "GET /health": "Detailed health status",
+            "POST /api/analyze/raw": "Physics-only EWCL",
+            "POST /api/analyze/regressor": "Physics + ML regressor",
+            "POST /api/analyze/refined": "Physics + refined model",
+            "POST /api/analyze/hallucination": "Physics + hallucination detection",
+            "POST /api/analyze-pdb": "Unified physics + hallucination analysis",
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,

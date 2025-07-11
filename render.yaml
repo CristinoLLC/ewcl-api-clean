@@ -12,3 +12,4 @@ services:
         value: 3.11.8
       - key: PIP_DISABLE_PIP_VERSION_CHECK
         value: 1
+    healthCheckPath: /health
