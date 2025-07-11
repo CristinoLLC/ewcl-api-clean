@@ -386,7 +386,7 @@ app.add_middleware(
         "https://www.ewclx.com",
         "https://ewclx.com", 
         "http://localhost:3000",
-        "http://127.0.0.1:3000"
+        "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -434,8 +434,63 @@ async def analyze_hallucination(file: UploadFile = File(...)):
 
 @api_router.post("/analyze-pdb")
 async def analyze_pdb_legacy(pdb: UploadFile = File(...)):
-    """Legacy: analyze-pdb endpoint"""
-    return await analyze_raw(pdb)
+    """
+    Unified analysis: Physics + Hallucination detection in single call
+    Returns complete residue-level analysis with hallucination scoring
+    """
+    try:
+        # Run physics-based EWCL analysis
+        df = run_physics(await pdb.read())
+        
+        # Always include base physics results
+        result_cols = ["chain", "position", "aa", "cl", "bfactor", "plddt", 
+                      "bfactor_norm", "hydro_entropy", "charge_entropy",
+                      "bfactor_curv", "bfactor_curv_entropy", "bfactor_curv_flips"]
+        
+        # Add hallucination detection if models are available
+        if REGRESSOR is not None and HALLUC_MODEL is not None:
+            try:
+                # Run ML regressor first
+                df = add_main_prediction(df)
+                # Then run hallucination detection
+                df = add_hallucination_prediction(df)
+                
+                # Add hallucination results to output
+                result_cols.extend(["cl_pred", "hallucination", "halluc_score"])
+                
+                # Add human-readable hallucination labels
+                df["hallucination_label"] = df["halluc_score"].apply(
+                    lambda x: "Likely" if x > 0.7 else "Possible" if x > 0.3 else "Unlikely"
+                )
+                result_cols.append("hallucination_label")
+                
+                print("🔬 Added unified physics + hallucination analysis")
+                
+            except Exception as e:
+                print(f"⚠️ Hallucination detection failed, returning physics-only: {e}")
+                # Add empty hallucination columns as fallback
+                df["hallucination"] = 0
+                df["halluc_score"] = 0.0
+                df["hallucination_label"] = "Unknown"
+                result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
+        else:
+            print("📊 ML models not available, returning physics-only")
+            # Add empty hallucination columns
+            df["hallucination"] = 0
+            df["halluc_score"] = 0.0
+            df["hallucination_label"] = "Unknown"
+            result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
+        
+        # Add stability note based on physics CL score
+        df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
+        result_cols.append("note")
+        
+        # Filter to only available columns and return
+        available_cols = [col for col in result_cols if col in df.columns]
+        return JSONResponse(content=df[available_cols].to_dict("records"))
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Include the router
 app.include_router(api_router)
@@ -449,14 +504,14 @@ def health_check():
             "api/analyze/regressor": "Physics + main regressor",
             "api/analyze/refined": "High-confidence refiner",
             "api/analyze/hallucination": "Hallucination detection",
-            "api/analyze-pdb": "Legacy analyze-pdb endpoint"
+            "api/analyze-pdb": "Legacy analyze-pdb endpoint",
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
             "high_model": HIGH_MODEL is not None,
             "high_scaler": HIGH_SCALER is not None,
             "halluc_model": HALLUC_MODEL is not None
-        }
+        },
     }
 
 @app.get("/health")
@@ -464,7 +519,6 @@ def health():
     model_files = []
     if MODEL_DIR.exists():
         model_files = [f.name for f in MODEL_DIR.glob("*")]
-    
     return {
         "status": "ok",
         "endpoints": {
@@ -477,7 +531,7 @@ def health():
             "regressor": REGRESSOR is not None,
             "refiner": HIGH_MODEL is not None,
             "hallucination": HALLUC_MODEL is not None,
-            "scaler": HIGH_SCALER is not None
+            "scaler": HIGH_SCALER is not None,
         },
         "version": "2025.0.1",
         "python_version": "3.11.8",
@@ -485,13 +539,12 @@ def health():
         "numpy_version": "1.23.5 (stable)",
         "model_dir_exists": MODEL_DIR.exists(),
         "model_files": model_files,
-        "model_dir_path": str(MODEL_DIR)
+        "model_dir_path": str(MODEL_DIR),
     }
 
 # ───────────────────────────────────────────
 # Legacy endpoints (keep for compatibility)
 # ───────────────────────────────────────────
-
 @app.post("/raw-physics/")
 async def raw_physics(pdb: UploadFile = File(...)):
     """Legacy: Physics-only EWCL"""
@@ -520,13 +573,11 @@ async def analyze_full(pdb: UploadFile = File(...)):
         df = add_main_prediction(df)
         df = add_refined_prediction(df)
         df = add_hallucination_prediction(df)
-        
         output_cols = [
             "chain", "position", "aa", "cl", "cl_pred", 
             "cl_refined", "hallucination", "halluc_score", "bfactor", "plddt"
         ]
         final_cols = [col for col in output_cols if col in df.columns]
-        
         return JSONResponse(df[final_cols].to_dict("records"))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
