@@ -6,8 +6,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
-import tempfile, joblib, pandas as pd, numpy as np
-import warnings
+import tempfile, joblib, pandas as pd, numpy as np, warnings
 
 # ───────────────────────────────────────────
 # 1)  load physics extractor
@@ -481,8 +480,9 @@ def health():
             "scaler": HIGH_SCALER is not None
         },
         "version": "2025.0.1",
-        "python_version": "3.13.4",
-        "scikit_learn_version": "1.6.1 (pinned)",
+        "python_version": "3.11.8",
+        "scikit_learn_version": "1.1.3 (stable)",
+        "numpy_version": "1.23.5 (stable)",
         "model_dir_exists": MODEL_DIR.exists(),
         "model_files": model_files,
         "model_dir_path": str(MODEL_DIR)
