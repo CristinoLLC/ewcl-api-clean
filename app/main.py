@@ -673,17 +673,17 @@ def health_check():
     return {
         "status": "EWCL API v2025.0.1", 
         "message": "API is running successfully",
-        "physics_only": True,
-        "ml_models_status": "Failed to load (using physics fallbacks)",
+        "physics_only": REGRESSOR is None and HIGH_MODEL is None and HALLUC_MODEL is None,
+        "ml_models_status": f"{'Loaded' if any([REGRESSOR, HIGH_MODEL, HALLUC_MODEL]) else 'Failed to load'} (using {'ML + physics' if any([REGRESSOR, HIGH_MODEL, HALLUC_MODEL]) else 'physics fallbacks'})",
         "endpoints": {
             "GET /": "Health check",
             "GET /health": "Detailed health status",
-            "POST /analyze-pdb": "Direct unified analysis endpoint (physics-based)",
-            "POST /disprot-predict": "DisProt disorder prediction (physics-based)",
+            "POST /analyze-pdb": f"Direct unified analysis endpoint ({'ML-enhanced' if REGRESSOR and HALLUC_MODEL else 'physics-based'})",
+            "POST /disprot-predict": f"DisProt disorder prediction ({'ML-enhanced' if DISPROT_MODEL else 'physics-based'})",
             "POST /api/analyze/raw": "Physics-only EWCL",
-            "POST /api/analyze/regressor": "Physics + ML regressor (fallback to physics)",
-            "POST /api/analyze/refined": "Physics + refined model (fallback to physics)",
-            "POST /api/analyze/hallucination": "Physics + hallucination detection (fallback to physics)",
+            "POST /api/analyze/regressor": f"Physics + ML regressor ({'available' if REGRESSOR else 'fallback to physics'})",
+            "POST /api/analyze/refined": f"Physics + refined model ({'available' if HIGH_MODEL else 'fallback to physics'})",
+            "POST /api/analyze/hallucination": f"Physics + hallucination detection ({'available' if HALLUC_MODEL else 'fallback to physics'})",
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
@@ -693,7 +693,8 @@ def health_check():
             "disprot_model": DISPROT_MODEL is not None,
             "disprot_halluc_model": DISPROT_HALLUC_MODEL is not None,
         },
-        "note": "All endpoints work with physics-based analysis. ML models failed due to version compatibility issues."
+        "models_found": len([f for f in MODEL_DIR.glob("*.pkl")]) if MODEL_DIR.exists() else 0,
+        "note": f"{'ML models successfully loaded!' if any([REGRESSOR, HIGH_MODEL, HALLUC_MODEL]) else 'All endpoints work with physics-based analysis. ML models failed due to version compatibility issues.'}"
     }
 
 @app.get("/health")
