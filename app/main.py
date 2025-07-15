@@ -67,9 +67,16 @@ HIGH_MODEL = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_model.pkl", 
 HIGH_SCALER = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_scaler.pkl", "high_scaler")
 HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector_model.pkl", "halluc_model")
 
-# Load DisProt models
+# Load DisProt models with better error handling
+print("🔍 Loading DisProt models...")
 DISPROT_MODEL = load_model_safely(MODEL_DIR / "xgb_disprot_model.pkl", "disprot_model")
 DISPROT_HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector.pkl", "disprot_halluc_model")
+
+# If models are missing, create a notice
+if DISPROT_MODEL is None:
+    print("⚠️ DisProt model not found. Please place 'xgb_disprot_model.pkl' in the models/ directory")
+if DISPROT_HALLUC_MODEL is None:
+    print("⚠️ DisProt hallucination model not found. Please place 'hallucination_detector.pkl' in the models/ directory")
 
 # Print startup summary
 print("\n" + "="*50)
@@ -439,13 +446,120 @@ async def analyze_hallucination(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Include the router
+# Include the router with error handling
 app.include_router(api_router)
 
-# Add route import after the existing imports
-from routes import disprot
+# Try to add DisProt route - now it should work
+try:
+    from routes import disprot
+    app.include_router(disprot.router)
+    print("✅ DisProt route registered successfully")
+except ImportError as e:
+    print(f"⚠️ Could not import DisProt route: {e}")
+    
+    # Create a simple fallback endpoint
+    @app.post("/disprot-predict")
+    async def disprot_predict_fallback(file: UploadFile = File(...)):
+        """DisProt prediction fallback - uses physics only"""
+        try:
+            df = run_physics(await file.read())
+            
+            result = []
+            for i, row in df.iterrows():
+                cl = row.get("cl", 0.0)
+                rev_cl = 1.0 - cl
+                entropy = row.get("hydro_entropy", 0.0)
+                
+                # Simple physics-based disorder prediction
+                disprot_prob = (entropy + rev_cl) / 2.0
+                disprot_prob = min(max(disprot_prob, 0.0), 1.0)
+                
+                result.append({
+                    "chain": str(row.get("chain", "A")),
+                    "position": int(row.get("residue_id", i + 1)),
+                    "aa": str(row.get("aa", "")),
+                    "rev_cl": float(rev_cl),
+                    "entropy": float(entropy),
+                    "disprot_prob": float(disprot_prob),
+                    "hallucination_score": 0.0
+                })
+            
+            return JSONResponse(content={"results": result})
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"DisProt prediction failed: {str(e)}")
 
-app.include_router(disprot.router)  # Add this line
+# Add missing analyze-pdb endpoint
+@app.post("/analyze-pdb")
+async def analyze_pdb_direct(file: UploadFile = File(...)):
+    """
+    Direct analyze-pdb endpoint (without /api prefix)
+    Unified analysis with complete physics features
+    """
+    try:
+        print(f"📥 Received file: {file.filename}")
+        
+        # Run physics analysis
+        df = run_physics(await file.read())
+        print(f"📊 Physics analysis completed: {len(df)} residues")
+        
+        # Map fields if needed
+        if "residue_id" in df.columns and "position" not in df.columns:
+            df["position"] = df["residue_id"]
+        
+        # Always include base physics results
+        result_cols = ["chain", "position", "aa", "cl", "bfactor", "plddt", 
+                      "bfactor_norm", "hydro_entropy", "charge_entropy",
+                      "bfactor_curv", "bfactor_curv_entropy", "bfactor_curv_flips"]
+        
+        # Add ML predictions if available
+        if REGRESSOR is not None and HALLUC_MODEL is not None:
+            try:
+                df = add_main_prediction(df)
+                df = add_hallucination_prediction(df)
+                
+                result_cols.extend(["cl_pred", "hallucination", "halluc_score"])
+                
+                # Add hallucination labels
+                df["hallucination_label"] = df["halluc_score"].apply(
+                    lambda x: "Likely" if x > 0.7 else "Possible" if x > 0.3 else "Unlikely"
+                )
+                result_cols.append("hallucination_label")
+                
+                print("🔬 Added ML predictions")
+                
+            except Exception as e:
+                print(f"⚠️ ML prediction failed: {e}")
+                # Add empty columns
+                df["hallucination"] = 0
+                df["halluc_score"] = 0.0
+                df["hallucination_label"] = "Unknown"
+                result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
+        else:
+            # Add empty columns
+            df["hallucination"] = 0
+            df["halluc_score"] = 0.0
+            df["hallucination_label"] = "Unknown"
+            result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
+        
+        # Add stability note
+        df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
+        result_cols.append("note")
+        
+        # Add protein name if available
+        if "protein" in df.columns:
+            result_cols.insert(0, "protein")
+        
+        # Filter to available columns
+        available_cols = [col for col in result_cols if col in df.columns]
+        result = df[available_cols].to_dict("records")
+        
+        print(f"✅ Returning {len(result)} residues")
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        print(f"❌ Analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 def health_check():
