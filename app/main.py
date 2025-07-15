@@ -67,6 +67,10 @@ HIGH_MODEL = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_model.pkl", 
 HIGH_SCALER = load_model_safely(MODEL_DIR / "ewcl_residue_local_high_scaler.pkl", "high_scaler")
 HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector_model.pkl", "halluc_model")
 
+# Load DisProt models
+DISPROT_MODEL = load_model_safely(MODEL_DIR / "xgb_disprot_model.pkl", "disprot_model")
+DISPROT_HALLUC_MODEL = load_model_safely(MODEL_DIR / "hallucination_detector.pkl", "disprot_halluc_model")
+
 # Print startup summary
 print("\n" + "="*50)
 print("🚀 EWCL API STARTUP SUMMARY")
@@ -75,11 +79,14 @@ print(f"✅ Physics extractor: READY")
 print(f"{'✅' if REGRESSOR else '❌'} Regressor model: {'LOADED' if REGRESSOR else 'FAILED (using physics fallback)'}")
 print(f"{'✅' if HIGH_MODEL else '❌'} High refinement: {'LOADED' if HIGH_MODEL else 'FAILED (using physics fallback)'}")
 print(f"{'✅' if HALLUC_MODEL else '❌'} Hallucination detector: {'LOADED' if HALLUC_MODEL else 'FAILED (using physics fallback)'}")
+print(f"{'✅' if DISPROT_MODEL else '❌'} DisProt model: {'LOADED' if DISPROT_MODEL else 'FAILED'}")
+print(f"{'✅' if DISPROT_HALLUC_MODEL else '❌'} DisProt hallucination model: {'LOADED' if DISPROT_HALLUC_MODEL else 'FAILED'}")
 print("\n📡 Available endpoints:")
 print("  • /api/analyze/raw - Physics-only EWCL")
 print("  • /api/analyze/regressor - Physics + ML regressor (fallback if model unavailable)")
 print("  • /api/analyze/refined - Physics + refined model (fallback if model unavailable)")
 print("  • /api/analyze/hallucination - Physics + hallucination detection (fallback if model unavailable)")
+print("  • /disprot-predict - DisProt disorder prediction")
 print("  • /health - Health check and model status")
 print("\n🚀 LOCAL DEVELOPMENT:")
 print("  Run with: uvicorn app.main:app --reload --port 8000")
@@ -432,194 +439,13 @@ async def analyze_hallucination(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@api_router.post("/analyze-pdb")
-async def analyze_pdb_legacy(pdb: UploadFile = File(...)):
-    """
-    Unified analysis: Physics + Hallucination detection in single call
-    Returns complete residue-level analysis with hallucination scoring
-    """
-    try:
-        # Run physics-based EWCL analysis
-        df = run_physics(await pdb.read())
-        
-        # Always include base physics results
-        result_cols = ["chain", "position", "aa", "cl", "bfactor", "plddt", 
-                      "bfactor_norm", "hydro_entropy", "charge_entropy",
-                      "bfactor_curv", "bfactor_curv_entropy", "bfactor_curv_flips"]
-        
-        # Add hallucination detection if models are available
-        if REGRESSOR is not None and HALLUC_MODEL is not None:
-            try:
-                # Run ML regressor first
-                df = add_main_prediction(df)
-                # Then run hallucination detection
-                df = add_hallucination_prediction(df)
-                
-                # Add hallucination results to output
-                result_cols.extend(["cl_pred", "hallucination", "halluc_score"])
-                
-                # Add human-readable hallucination labels
-                df["hallucination_label"] = df["halluc_score"].apply(
-                    lambda x: "Likely" if x > 0.7 else "Possible" if x > 0.3 else "Unlikely"
-                )
-                result_cols.append("hallucination_label")
-                
-                print("🔬 Added unified physics + hallucination analysis")
-                
-            except Exception as e:
-                print(f"⚠️ Hallucination detection failed, returning physics-only: {e}")
-                # Add empty hallucination columns as fallback
-                df["hallucination"] = 0
-                df["halluc_score"] = 0.0
-                df["hallucination_label"] = "Unknown"
-                result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
-        else:
-            print("📊 ML models not available, returning physics-only")
-            # Add empty hallucination columns
-            df["hallucination"] = 0
-            df["halluc_score"] = 0.0
-            df["hallucination_label"] = "Unknown"
-            result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
-        
-        # Add stability note based on physics CL score
-        df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
-        result_cols.append("note")
-        
-        # Add protein name from physics extractor
-        if "protein" in df.columns:
-            result_cols.insert(0, "protein")
-        
-        # Filter to only available columns and return
-        available_cols = [col for col in result_cols if col in df.columns]
-        return JSONResponse(content=df[available_cols].to_dict("records"))
-        
-    except Exception as e:
-        print(f"❌ analyze-pdb endpoint error: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
 # Include the router
 app.include_router(api_router)
 
-@app.post("/analyze-pdb")
-async def analyze_pdb_direct(file: UploadFile = File(...)):
-    """
-    Direct analyze-pdb endpoint (without /api prefix)
-    Unified analysis: Physics + Hallucination detection in single call
-    Returns complete residue-level analysis with full physics traceability
-    
-    ✅ Uses enhanced_ewcl_af.py for physics-based EWCL computation
-    ✅ Computes all physics features (entropy, curvature, etc.)
-    ✅ Adds ML hallucination detection after physics analysis
-    ✅ Returns full trace in JSON format
-    ✅ pLDDT/B-factor NOT used in CL calculation (only for reference)
-    """
-    try:
-        print(f"📥 Received file: {file.filename}, content-type: {file.content_type}")
-        
-        # 1. Run physics-based EWCL analysis using enhanced_ewcl_af.py
-        df = run_physics(await file.read())  # calls compute_curvature_features()
-        print(f"📊 Physics analysis completed: {len(df)} residues")
-        print(f"🔍 Available columns: {list(df.columns)}")
-        
-        # 2. Map physics extractor field names to API field names
-        field_mapping = {
-            "residue_id": "position",
-            "protein": "protein"
-        }
-        
-        # Apply field mapping
-        for old_name, new_name in field_mapping.items():
-            if old_name in df.columns and new_name not in df.columns:
-                df[new_name] = df[old_name]
-                print(f"🔄 Mapped {old_name} -> {new_name}")
-        
-        # 3. Always include ALL physics features for full traceability
-        result_cols = [
-            "protein", "chain", "position", "aa", "cl", "bfactor", "plddt", 
-            "bfactor_norm", "hydro_entropy", "charge_entropy",
-            "bfactor_curv", "bfactor_curv_entropy", "bfactor_curv_flips"
-        ]
-        
-        # 4. Add hallucination detection if models are available
-        if REGRESSOR is not None and HALLUC_MODEL is not None:
-            try:
-                # Run ML regressor first
-                df = add_main_prediction(df)
-                # Then run hallucination detection
-                df = add_hallucination_prediction(df)
-                
-                # Add hallucination results to output
-                result_cols.extend(["cl_pred", "hallucination", "halluc_score"])
-                
-                # Add human-readable hallucination labels
-                df["hallucination_label"] = df["halluc_score"].apply(
-                    lambda x: "Likely" if x > 0.7 else "Possible" if x > 0.3 else "Unlikely"
-                )
-                result_cols.append("hallucination_label")
-                
-                print("🔬 Added unified physics + hallucination analysis")
-                
-            except Exception as e:
-                print(f"⚠️ Hallucination detection failed, returning physics-only: {e}")
-                # Add empty hallucination columns as fallback
-                df["hallucination"] = 0
-                df["halluc_score"] = 0.0
-                df["hallucination_label"] = "Unknown"
-                result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
-        else:
-            print("📊 ML models not available, returning physics-only")
-            # Add empty hallucination columns
-            df["hallucination"] = 0
-            df["halluc_score"] = 0.0
-            df["hallucination_label"] = "Unknown"
-            result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
-        
-        # 5. Add stability classification based on physics CL score
-        df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
-        result_cols.append("note")
-        
-        # 6. Ensure complete feature set with fallbacks for missing columns
-        for col in result_cols:
-            if col not in df.columns:
-                if col in ["hallucination", "note"]:
-                    df[col] = 0 if col == "hallucination" else "Unknown"
-                elif col in ["halluc_score"]:
-                    df[col] = 0.0
-                elif col in ["protein"]:
-                    df[col] = file.filename.split('.')[0] if file.filename else "unknown"
-                elif col in ["chain"]:
-                    df[col] = "A"  # Default chain
-                else:
-                    df[col] = 0.0  # Numeric fallback
-                print(f"⚠️ Added fallback for missing column: {col}")
-        
-        # Filter to only available columns and return
-        available_cols = [col for col in result_cols if col in df.columns]
-        missing_cols = [col for col in result_cols if col not in df.columns]
-        
-        if missing_cols:
-            print(f"⚠️ Missing expected columns: {missing_cols}")
-        
-        print(f"📋 Final feature set: {available_cols}")
-        
-        result = df[available_cols].to_dict("records")
-        
-        print(f"✅ Returning {len(result)} residues with complete physics trace")
-        if result:
-            print(f"📊 Sample features: {list(result[0].keys())}")
-            # Verify we have core physics features
-            required_physics = ["cl", "hydro_entropy", "charge_entropy", "bfactor_curv"]
-            missing_physics = [f for f in required_physics if f not in result[0]]
-            if missing_physics:
-                print(f"⚠️ Missing core physics features: {missing_physics}")
-            else:
-                print("✅ All core physics features present")
-        
-        return JSONResponse(content=result)
-        
-    except Exception as e:
-        print(f"❌ analyze-pdb endpoint error: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+# Add route import after the existing imports
+from routes import disprot
+
+app.include_router(disprot.router)  # Add this line
 
 @app.get("/")
 def health_check():
@@ -630,6 +456,7 @@ def health_check():
             "GET /": "Health check",
             "GET /health": "Detailed health status",
             "POST /analyze-pdb": "Direct unified analysis endpoint",
+            "POST /disprot-predict": "DisProt disorder prediction",
             "POST /api/analyze/raw": "Physics-only EWCL",
             "POST /api/analyze/regressor": "Physics + ML regressor",
             "POST /api/analyze/refined": "Physics + refined model",
@@ -640,7 +467,9 @@ def health_check():
             "regressor": REGRESSOR is not None,
             "high_model": HIGH_MODEL is not None,
             "high_scaler": HIGH_SCALER is not None,
-            "halluc_model": HALLUC_MODEL is not None
+            "halluc_model": HALLUC_MODEL is not None,
+            "disprot_model": DISPROT_MODEL is not None,
+            "disprot_halluc_model": DISPROT_HALLUC_MODEL is not None,
         },
     }
 
@@ -649,19 +478,23 @@ def health():
     model_files = []
     if MODEL_DIR.exists():
         model_files = [f.name for f in MODEL_DIR.glob("*")]
+    
     return {
         "status": "ok",
         "endpoints": {
             "api/analyze/raw": "Physics-only EWCL",
             "api/analyze/regressor": "Physics + main regressor", 
             "api/analyze/refined": "Physics + refined model",
-            "api/analyze/hallucination": "Physics + hallucination detection"
+            "api/analyze/hallucination": "Physics + hallucination detection",
+            "disprot-predict": "DisProt disorder prediction"
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
             "refiner": HIGH_MODEL is not None,
             "hallucination": HALLUC_MODEL is not None,
             "scaler": HIGH_SCALER is not None,
+            "disprot_model": DISPROT_MODEL is not None,
+            "disprot_halluc_model": DISPROT_HALLUC_MODEL is not None,
         },
         "version": "2025.0.1",
         "python_version": "3.11.8",
