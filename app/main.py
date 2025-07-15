@@ -541,6 +541,37 @@ async def analyze_hallucination(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/analyze-rev-ewcl")
+async def analyze_reverse_ewcl(file: UploadFile = File(...)):
+    """
+    Entropy-based collapse likelihood inversion reveals regions prone to instability, 
+    disorder, or folding uncertainty — consistent with known IDRs.
+    Uses physics-based EWCL model with reversed CL = 1 - raw_cl.
+    """
+    try:
+        contents = await file.read()
+        with open("temp.pdb", "wb") as f:
+            f.write(contents)
+
+        from models.enhanced_ewcl_af import extract_features_from_pdb
+        df = extract_features_from_pdb("temp.pdb")
+        df["rev_cl"] = 1 - df["cl"]
+        df = df.dropna(subset=["rev_cl"])
+
+        results = []
+        for _, row in df.iterrows():
+            results.append({
+                "chain": row["chain"],
+                "position": int(row["residue_index"]),
+                "aa": row.get("aa", ""),
+                "cl": round(float(row["rev_cl"]), 3)
+            })
+
+        return {"status": "ok", "data": results}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # Include the router with error handling
 app.include_router(api_router)
 
@@ -679,6 +710,7 @@ def health_check():
             "GET /": "Health check",
             "GET /health": "Detailed health status",
             "POST /analyze-pdb": f"Direct unified analysis endpoint ({'ML-enhanced' if REGRESSOR and HALLUC_MODEL else 'physics-based'})",
+            "POST /analyze-rev-ewcl": "Entropy-based collapse likelihood inversion for instability analysis (physics-based)",
             "POST /disprot-predict": f"DisProt disorder prediction ({'ML-enhanced' if DISPROT_MODEL else 'physics-based'})",
             "POST /api/analyze/raw": "Physics-only EWCL",
             "POST /api/analyze/regressor": f"Physics + ML regressor ({'available' if REGRESSOR else 'fallback to physics'})",

@@ -50,3 +50,64 @@ if __name__ == "__main__":
     
     all_good = all(success for _, success in results)
     print(f"\n🎯 Overall: {'All models ready!' if all_good else 'Some models missing/broken'}")
+
+"""
+Check for required model files and provide download instructions
+"""
+
+import os
+from pathlib import Path
+
+def check_models():
+    """Check if all required models are present"""
+    
+    models_dir = Path(__file__).parent / "models"
+    
+    required_models = {
+        "ewcl_regressor_model.pkl": "Main EWCL regressor model",
+        "ewcl_residue_local_high_model.pkl": "High-confidence refiner model", 
+        "ewcl_residue_local_high_scaler.pkl": "High-confidence scaler",
+        "hallucination_detector_model.pkl": "Hallucination detector",
+        "xgb_disprot_model.pkl": "DisProt disorder prediction model",
+        "hallucination_detector.pkl": "DisProt hallucination detector"
+    }
+    
+    print("🔍 Checking for required model files...")
+    print(f"📂 Models directory: {models_dir}")
+    
+    if not models_dir.exists():
+        print("❌ Models directory does not exist!")
+        return False
+    
+    missing_models = []
+    present_models = []
+    
+    for model_file, description in required_models.items():
+        model_path = models_dir / model_file
+        if model_path.exists():
+            size = model_path.stat().st_size
+            print(f"✅ {model_file} ({size} bytes) - {description}")
+            present_models.append(model_file)
+        else:
+            print(f"❌ {model_file} - {description}")
+            missing_models.append(model_file)
+    
+    print(f"\n📊 Summary: {len(present_models)}/{len(required_models)} models found")
+    
+    if missing_models:
+        print("\n⚠️ Missing models:")
+        for model in missing_models:
+            print(f"  • {model}")
+        
+        print("\n🔧 To add missing models:")
+        print("1. Download the model files")
+        print("2. Place them in the models/ directory")
+        print("3. Restart the API")
+        
+        return False
+    else:
+        print("\n✅ All required models are present!")
+        return True
+
+if __name__ == "__main__":
+    check_models()

@@ -48,7 +48,6 @@ Thumbs.db
 backend/
 core/
 one/
-routes/
 time/
 utils/
 api/routes/
@@ -63,3 +62,6 @@ models/qwip3d.py
 
 # Keep only the clean structure
 # Keep: app/, models/, requirements.txt, README.md, render.yaml
+
+# Remove routes from .gitignore if it's there
+!routes/
