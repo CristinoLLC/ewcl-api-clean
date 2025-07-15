@@ -549,28 +549,104 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
     Uses physics-based EWCL model with reversed CL = 1 - raw_cl.
     """
     try:
-        contents = await file.read()
-        with open("temp.pdb", "wb") as f:
-            f.write(contents)
-
-        from models.enhanced_ewcl_af import extract_features_from_pdb
-        df = extract_features_from_pdb("temp.pdb")
+        print(f"📥 Reverse EWCL analysis for: {file.filename}")
+        
+        # Run physics-based EWCL extraction using the same function as other endpoints
+        df = run_physics(await file.read())
+        print(f"📊 Physics analysis completed: {len(df)} residues")
+        
+        # Apply reversed collapse logic
         df["rev_cl"] = 1 - df["cl"]
         df = df.dropna(subset=["rev_cl"])
-
+        
+        # Map fields if needed for consistency
+        if "residue_id" in df.columns and "position" not in df.columns:
+            df["position"] = df["residue_id"]
+        
+        # Ensure plddt column exists (AlphaFold PDBs have plddt in bfactor column)
+        if "plddt" not in df.columns:
+            df["plddt"] = df["bfactor"]
+        
+        # Prepare comprehensive results matching normal EWCL format
         results = []
         for _, row in df.iterrows():
-            results.append({
-                "chain": row["chain"],
-                "position": int(row["residue_index"]),
-                "aa": row.get("aa", ""),
-                "cl": round(float(row["rev_cl"]), 3)
-            })
-
-        return {"status": "ok", "data": results}
-
+            rev_cl_val = float(row["rev_cl"])
+            
+            # Add instability classification (exploratory thresholds)
+            if rev_cl_val > 0.7:
+                instability_level = "highly_unstable"
+            elif rev_cl_val > 0.5:
+                instability_level = "moderately_unstable"
+            else:
+                instability_level = "stable"
+            
+            # Add stability note (inverted logic for reversed CL)
+            note = "Unstable" if rev_cl_val > 0.6 else "Stable"
+            
+            result_entry = {
+                "chain": str(row.get("chain", "A")),
+                "position": int(row.get("position", row.get("residue_id", 0))),
+                "aa": str(row.get("aa", "")),
+                "cl": round(float(row["cl"]), 3),  # Original collapse likelihood
+                "rev_cl": round(rev_cl_val, 3),   # Reversed collapse likelihood
+                "instability_level": instability_level,
+                "bfactor": round(float(row.get("bfactor", 0.0)), 3),
+                "plddt": round(float(row.get("plddt", row.get("bfactor", 0.0))), 3),
+                "bfactor_norm": round(float(row.get("bfactor_norm", 0.0)), 3),
+                "hydro_entropy": round(float(row.get("hydro_entropy", 0.0)), 3),
+                "charge_entropy": round(float(row.get("charge_entropy", 0.0)), 3),
+                "bfactor_curv": round(float(row.get("bfactor_curv", 0.0)), 3),
+                "bfactor_curv_entropy": round(float(row.get("bfactor_curv_entropy", 0.0)), 3),
+                "bfactor_curv_flips": round(float(row.get("bfactor_curv_flips", 0.0)), 3),
+                "note": note
+            }
+            
+            results.append(result_entry)
+        
+        # Optional: Save JSON output
+        try:
+            import json
+            import os
+            os.makedirs("jsons_rev", exist_ok=True)
+            filename = file.filename.replace(".pdb", ".json") if file.filename else "output.json"
+            with open(f"jsons_rev/{filename}", "w") as f:
+                json.dump({
+                    "status": "ok",
+                    "data": results,
+                    "summary": {
+                        "total_residues": len(results),
+                        "highly_unstable": sum(1 for r in results if r["instability_level"] == "highly_unstable"),
+                        "moderately_unstable": sum(1 for r in results if r["instability_level"] == "moderately_unstable"),
+                        "stable": sum(1 for r in results if r["instability_level"] == "stable")
+                    }
+                }, f, indent=2)
+            print(f"💾 Saved output to jsons_rev/{filename}")
+        except Exception as save_error:
+            print(f"⚠️ Failed to save JSON output: {save_error}")
+        
+        # Statistics
+        highly_unstable = sum(1 for r in results if r["instability_level"] == "highly_unstable")
+        moderately_unstable = sum(1 for r in results if r["instability_level"] == "moderately_unstable")
+        stable = len(results) - highly_unstable - moderately_unstable
+        
+        print(f"✅ Reverse EWCL analysis: {highly_unstable} highly unstable, {moderately_unstable} moderately unstable, {stable} stable out of {len(results)} residues")
+        
+        return JSONResponse(content={
+            "status": "ok",
+            "data": results,
+            "summary": {
+                "total_residues": len(results),
+                "highly_unstable": highly_unstable,
+                "moderately_unstable": moderately_unstable,
+                "stable": stable,
+                "analysis_type": "reverse_ewcl",
+                "description": "Entropy-based collapse likelihood inversion for instability analysis"
+            }
+        })
+        
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"❌ Reverse EWCL analysis error: {e}")
+        raise HTTPException(status_code=500, detail=f"Reverse EWCL analysis failed: {str(e)}")
 
 # Include the router with error handling
 app.include_router(api_router)
