@@ -250,6 +250,15 @@ def load_pickle(filepath):
     except Exception as e:
         raise RuntimeError(f"Failed to load {filepath}: {e}")
 
+def safe_float(x):
+    """Safely convert value to float, handling NoneType and invalid values"""
+    try:
+        if x is None:
+            return 0.0
+        return float(x)
+    except (TypeError, ValueError):
+        return 0.0
+
 # ───────────────────────────────────────────
 # 3)  ML Prediction Helpers with robust feature filtering
 # ───────────────────────────────────────────
@@ -555,8 +564,8 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
         df = run_physics(await file.read())
         print(f"📊 Physics analysis completed: {len(df)} residues")
         
-        # Apply reversed collapse logic
-        df["rev_cl"] = 1 - df["cl"]
+        # Apply reversed collapse logic with safe conversion
+        df["rev_cl"] = 1 - df["cl"].apply(safe_float)
         df = df.dropna(subset=["rev_cl"])
         
         # Map fields if needed for consistency
@@ -570,7 +579,7 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
         # Prepare comprehensive results matching normal EWCL format
         results = []
         for _, row in df.iterrows():
-            rev_cl_val = float(row["rev_cl"])
+            rev_cl_val = safe_float(row["rev_cl"])
             
             # Add instability classification (exploratory thresholds)
             if rev_cl_val > 0.7:
@@ -585,25 +594,25 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
             
             result_entry = {
                 "chain": str(row.get("chain", "A")),
-                "position": int(row.get("position", row.get("residue_id", 0))),
+                "position": int(safe_float(row.get("position", row.get("residue_id", 0)))),
                 "aa": str(row.get("aa", "")),
-                "cl": round(float(row["cl"]), 3),  # Original collapse likelihood
+                "cl": round(safe_float(row.get("cl", 0)), 3),  # Original collapse likelihood
                 "rev_cl": round(rev_cl_val, 3),   # Reversed collapse likelihood
                 "instability_level": instability_level,
-                "bfactor": round(float(row.get("bfactor", 0.0)), 3),
-                "plddt": round(float(row.get("plddt", row.get("bfactor", 0.0))), 3),
-                "bfactor_norm": round(float(row.get("bfactor_norm", 0.0)), 3),
-                "hydro_entropy": round(float(row.get("hydro_entropy", 0.0)), 3),
-                "charge_entropy": round(float(row.get("charge_entropy", 0.0)), 3),
-                "bfactor_curv": round(float(row.get("bfactor_curv", 0.0)), 3),
-                "bfactor_curv_entropy": round(float(row.get("bfactor_curv_entropy", 0.0)), 3),
-                "bfactor_curv_flips": round(float(row.get("bfactor_curv_flips", 0.0)), 3),
+                "bfactor": round(safe_float(row.get("bfactor", 0.0)), 3),
+                "plddt": round(safe_float(row.get("plddt", row.get("bfactor", 0.0))), 3),
+                "bfactor_norm": round(safe_float(row.get("bfactor_norm", 0.0)), 3),
+                "hydro_entropy": round(safe_float(row.get("hydro_entropy", 0.0)), 3),
+                "charge_entropy": round(safe_float(row.get("charge_entropy", 0.0)), 3),
+                "bfactor_curv": round(safe_float(row.get("bfactor_curv", 0.0)), 3),
+                "bfactor_curv_entropy": round(safe_float(row.get("bfactor_curv_entropy", 0.0)), 3),
+                "bfactor_curv_flips": round(safe_float(row.get("bfactor_curv_flips", 0.0)), 3),
                 "note": note
             }
             
             results.append(result_entry)
         
-        # Optional: Save JSON output
+        # Optional: Save JSON output with safe error handling
         try:
             import json
             import os
@@ -624,9 +633,9 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
         except Exception as save_error:
             print(f"⚠️ Failed to save JSON output: {save_error}")
         
-        # Statistics
-        highly_unstable = sum(1 for r in results if r["instability_level"] == "highly_unstable")
-        moderately_unstable = sum(1 for r in results if r["instability_level"] == "moderately_unstable")
+        # Statistics with safe calculations
+        highly_unstable = sum(1 for r in results if r.get("instability_level") == "highly_unstable")
+        moderately_unstable = sum(1 for r in results if r.get("instability_level") == "moderately_unstable")
         stable = len(results) - highly_unstable - moderately_unstable
         
         print(f"✅ Reverse EWCL analysis: {highly_unstable} highly unstable, {moderately_unstable} moderately unstable, {stable} stable out of {len(results)} residues")
@@ -648,62 +657,6 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
         print(f"❌ Reverse EWCL analysis error: {e}")
         raise HTTPException(status_code=500, detail=f"Reverse EWCL analysis failed: {str(e)}")
 
-# Include the router with error handling
-app.include_router(api_router)
-
-# Enhanced DisProt fallback with physics-based prediction
-@app.post("/disprot-predict")
-async def disprot_predict_fallback(file: UploadFile = File(...)):
-    """Enhanced DisProt prediction with physics-based fallback"""
-    try:
-        print(f"📥 DisProt prediction for: {file.filename}")
-        df = run_physics(await file.read())
-        
-        result = []
-        for i, row in df.iterrows():
-            cl = row.get("cl", 0.0)
-            rev_cl = 1.0 - cl
-            entropy = row.get("hydro_entropy", 0.0)
-            curvature = abs(row.get("bfactor_curv", 0.0))
-            
-            # Enhanced physics-based disorder prediction
-            # Disorder correlates with: high entropy, low collapse likelihood, high curvature
-            base_disorder = (entropy * 0.4) + (rev_cl * 0.4) + (curvature * 0.2)
-            
-            # Apply sigmoid-like transformation for better range
-            import math
-            disprot_prob = 1 / (1 + math.exp(-5 * (base_disorder - 0.5)))
-            disprot_prob = min(max(disprot_prob, 0.0), 1.0)
-            
-            # Enhanced hallucination scoring based on feature consistency
-            bfactor_norm = row.get("bfactor_norm", 0.0)
-            charge_entropy = row.get("charge_entropy", 0.0)
-            
-            # Inconsistent features suggest potential hallucination
-            feature_variance = abs(entropy - charge_entropy) + abs(bfactor_norm - 0.5)
-            halluc_score = min(feature_variance, 1.0)
-            
-            result.append({
-                "chain": str(row.get("chain", "A")),
-                "position": int(row.get("residue_id", i + 1)),
-                "aa": str(row.get("aa", "")),
-                "rev_cl": float(rev_cl),
-                "entropy": float(entropy),
-                "disprot_prob": float(disprot_prob),
-                "hallucination_score": float(halluc_score)
-            })
-        
-        model_status = "ML" if DISPROT_MODEL else "physics-based"
-        disorder_count = sum(1 for r in result if r["disprot_prob"] > 0.7)
-        print(f"✅ DisProt prediction ({model_status}): {disorder_count}/{len(result)} disordered")
-        
-        return JSONResponse(content={"results": result})
-        
-    except Exception as e:
-        print(f"❌ DisProt prediction error: {e}")
-        raise HTTPException(status_code=500, detail=f"DisProt prediction failed: {str(e)}")
-
-# Add missing analyze-pdb endpoint
 @app.post("/analyze-pdb")
 async def analyze_pdb_direct(file: UploadFile = File(...)):
     """
@@ -736,7 +689,7 @@ async def analyze_pdb_direct(file: UploadFile = File(...)):
                 
                 # Add hallucination labels
                 df["hallucination_label"] = df["halluc_score"].apply(
-                    lambda x: "Likely" if x > 0.7 else "Possible" if x > 0.3 else "Unlikely"
+                    lambda x: "Likely" if safe_float(x) > 0.7 else "Possible" if safe_float(x) > 0.3 else "Unlikely"
                 )
                 result_cols.append("hallucination_label")
                 
@@ -756,8 +709,8 @@ async def analyze_pdb_direct(file: UploadFile = File(...)):
             df["hallucination_label"] = "Unknown"
             result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
         
-        # Add stability note
-        df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
+        # Add stability note with safe float conversion
+        df["note"] = df["cl"].apply(lambda x: "Unstable" if safe_float(x) > 0.6 else "Stable")
         result_cols.append("note")
         
         # Add protein name if available
@@ -774,6 +727,60 @@ async def analyze_pdb_direct(file: UploadFile = File(...)):
     except Exception as e:
         print(f"❌ Analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/disprot-predict")
+async def disprot_predict_fallback(file: UploadFile = File(...)):
+    """Enhanced DisProt prediction with physics-based fallback"""
+    try:
+        print(f"📥 DisProt prediction for: {file.filename}")
+        df = run_physics(await file.read())
+        
+        result = []
+        for i, row in df.iterrows():
+            cl = safe_float(row.get("cl", 0.0))
+            rev_cl = 1.0 - cl
+            entropy = safe_float(row.get("hydro_entropy", 0.0))
+            curvature = abs(safe_float(row.get("bfactor_curv", 0.0)))
+            
+            # Enhanced physics-based disorder prediction
+            # Disorder correlates with: high entropy, low collapse likelihood, high curvature
+            base_disorder = (entropy * 0.4) + (rev_cl * 0.4) + (curvature * 0.2)
+            
+            # Apply sigmoid-like transformation for better range
+            import math
+            try:
+                disprot_prob = 1 / (1 + math.exp(-5 * (base_disorder - 0.5)))
+                disprot_prob = min(max(disprot_prob, 0.0), 1.0)
+            except (OverflowError, ValueError):
+                disprot_prob = 0.5  # Default fallback
+            
+            # Enhanced hallucination scoring based on feature consistency
+            bfactor_norm = safe_float(row.get("bfactor_norm", 0.0))
+            charge_entropy = safe_float(row.get("charge_entropy", 0.0))
+            
+            # Inconsistent features suggest potential hallucination
+            feature_variance = abs(entropy - charge_entropy) + abs(bfactor_norm - 0.5)
+            halluc_score = min(feature_variance, 1.0)
+            
+            result.append({
+                "chain": str(row.get("chain", "A")),
+                "position": int(safe_float(row.get("residue_id", i + 1))),
+                "aa": str(row.get("aa", "")),
+                "rev_cl": float(rev_cl),
+                "entropy": float(entropy),
+                "disprot_prob": float(disprot_prob),
+                "hallucination_score": float(halluc_score)
+            })
+        
+        model_status = "ML" if DISPROT_MODEL else "physics-based"
+        disorder_count = sum(1 for r in result if r["disprot_prob"] > 0.7)
+        print(f"✅ DisProt prediction ({model_status}): {disorder_count}/{len(result)} disordered")
+        
+        return JSONResponse(content={"results": result})
+        
+    except Exception as e:
+        print(f"❌ DisProt prediction error: {e}")
+        raise HTTPException(status_code=500, detail=f"DisProt prediction failed: {str(e)}")
 
 @app.get("/")
 def health_check():
