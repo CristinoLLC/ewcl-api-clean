@@ -243,6 +243,15 @@ def get_safe_features(df: pd.DataFrame, expected_features: list) -> list:
         print(f"✅ Using available features: {available_features}")
     return available_features
 
+def safe_float(value):
+    """Safely convert a value to a float, returning 0.0 on failure."""
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
 def load_pickle(filepath):
     """Helper to load pickle files with error handling"""
     try:
@@ -561,7 +570,8 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
         df = run_physics(await file.read())
         print(f"📊 Physics analysis completed: {len(df)} residues")
         
-        # Apply reversed collapse logic
+        # Apply reversed collapse logic using the safe_float helper
+        df["cl"] = df["cl"].apply(safe_float)
         df["rev_cl"] = 1 - df["cl"]
         df = df.dropna(subset=["rev_cl"])
         
@@ -576,7 +586,8 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
         # Prepare comprehensive results matching normal EWCL format
         results = []
         for _, row in df.iterrows():
-            rev_cl_val = float(row["rev_cl"])
+            # Use safe_float for all numeric conversions
+            rev_cl_val = safe_float(row.get("rev_cl"))
             
             # Add instability classification (exploratory thresholds)
             if rev_cl_val > 0.7:
@@ -591,19 +602,19 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
             
             result_entry = {
                 "chain": str(row.get("chain", "A")),
-                "position": int(row.get("position", row.get("residue_id", 0))),
+                "position": int(safe_float(row.get("position", row.get("residue_id", 0)))),
                 "aa": str(row.get("aa", "")),
-                "cl": round(float(row["cl"]), 3),  # Original collapse likelihood
+                "cl": round(safe_float(row.get("cl")), 3),  # Original collapse likelihood
                 "rev_cl": round(rev_cl_val, 3),   # Reversed collapse likelihood
                 "instability_level": instability_level,
-                "bfactor": round(float(row.get("bfactor", 0.0)), 3),
-                "plddt": round(float(row.get("plddt", row.get("bfactor", 0.0))), 3),
-                "bfactor_norm": round(float(row.get("bfactor_norm", 0.0)), 3),
-                "hydro_entropy": round(float(row.get("hydro_entropy", 0.0)), 3),
-                "charge_entropy": round(float(row.get("charge_entropy", 0.0)), 3),
-                "bfactor_curv": round(float(row.get("bfactor_curv", 0.0)), 3),
-                "bfactor_curv_entropy": round(float(row.get("bfactor_curv_entropy", 0.0)), 3),
-                "bfactor_curv_flips": round(float(row.get("bfactor_curv_flips", 0.0)), 3),
+                "bfactor": round(safe_float(row.get("bfactor")), 3),
+                "plddt": round(safe_float(row.get("plddt", row.get("bfactor"))), 3),
+                "bfactor_norm": round(safe_float(row.get("bfactor_norm")), 3),
+                "hydro_entropy": round(safe_float(row.get("hydro_entropy")), 3),
+                "charge_entropy": round(safe_float(row.get("charge_entropy")), 3),
+                "bfactor_curv": round(safe_float(row.get("bfactor_curv")), 3),
+                "bfactor_curv_entropy": round(safe_float(row.get("bfactor_curv_entropy")), 3),
+                "bfactor_curv_flips": round(safe_float(row.get("bfactor_curv_flips")), 3),
                 "note": note
             }
             
