@@ -490,10 +490,13 @@ app = FastAPI(
 
 # Allow frontend domain (not just "*", better security!)
 origins = [
-    "https://ewclx.com",           # your production domain
-    "https://www.ewclx.com",       # add www if needed
-    "http://localhost:3000",       # local dev
-    "http://127.0.0.1:3000"        # local dev
+    "https://ewclx.com",
+    "https://www.ewclx.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://v0-next-webapp-with-7ide41v6k-lucas-cristino.vercel.app",
+    "https://v0-next-webapp-with-mol-git-analysis-page-backup-lucas-cristino.vercel.app",
+    "https://v0-next-webapp-with-mol.vercel.app"
 ]
 
 # CORS middleware
