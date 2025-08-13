@@ -13,19 +13,12 @@ import tempfile, joblib, pandas as pd, numpy as np, warnings
 # ───────────────────────────────────────────
 from models.enhanced_ewcl_af import compute_curvature_features  # physics extractor
 
-def run_physics(pdb_bytes: bytes) -> pd.DataFrame:
-    """Run the physics-only EWCL extractor on raw PDB bytes."""
+def run_physics(pdb_bytes: bytes, bf_mode: str = "all") -> dict:
+    """Physics extractor → uniform dict { protein_id, summary, residues }."""
+    import tempfile
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdb")
-    tmp.write(pdb_bytes)
-    tmp.close()
-
-    rows = compute_curvature_features(tmp.name)  # returns list[dict]
-    df = pd.DataFrame(rows)
-
-    if df.empty:
-        raise ValueError("No CA atoms found or extractor failed")
-
-    return df
+    tmp.write(pdb_bytes); tmp.close()
+    return compute_curvature_features(tmp.name, bf_mode=bf_mode)
 
 # ───────────────────────────────────────────
 # 2)  load ML models & scalers with error handling
@@ -566,22 +559,19 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
     try:
         print(f"📥 Reverse EWCL analysis for: {file.filename}")
         
-        # Run physics-based EWCL extraction using the same function as other endpoints
-        df = run_physics(await file.read())
+        # Use the new uniform extractor
+        obj = run_physics(await file.read(), bf_mode="all")
+        df = pd.DataFrame(obj["residues"])
+        
+        if df.empty:
+            raise ValueError("No residues found in PDB file")
+        
         print(f"📊 Physics analysis completed: {len(df)} residues")
         
-        # Apply reversed collapse logic using the safe_float helper
+        # Apply reversed collapse logic using safe_float helper
         df["cl"] = df["cl"].apply(safe_float)
         df["rev_cl"] = 1 - df["cl"]
         df = df.dropna(subset=["rev_cl"])
-        
-        # Map fields if needed for consistency
-        if "residue_id" in df.columns and "position" not in df.columns:
-            df["position"] = df["residue_id"]
-        
-        # Ensure plddt column exists (AlphaFold PDBs have plddt in bfactor column)
-        if "plddt" not in df.columns:
-            df["plddt"] = df["bfactor"]
         
         # Prepare comprehensive results matching normal EWCL format
         results = []
@@ -602,7 +592,7 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
             
             result_entry = {
                 "chain": str(row.get("chain", "A")),
-                "position": int(safe_float(row.get("position", row.get("residue_id", 0)))),
+                "position": int(safe_float(row.get("position", 0))),
                 "aa": str(row.get("aa", "")),
                 "cl": round(safe_float(row.get("cl")), 3),  # Original collapse likelihood
                 "rev_cl": round(rev_cl_val, 3),   # Reversed collapse likelihood
@@ -668,124 +658,41 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
 @app.post("/analyze-pdb")
 async def analyze_pdb_direct(file: UploadFile = File(...)):
     """
-    Direct analyze-pdb endpoint (without /api prefix)
-    Unified analysis with complete physics features
+    Direct analyze-pdb endpoint (uniform output; physics first).
     """
     try:
         print(f"📥 Received file: {file.filename}")
-        
-        # Run physics analysis
-        df = run_physics(await file.read())
-        print(f"📊 Physics analysis completed: {len(df)} residues")
-        
-        # Map fields if needed
-        if "residue_id" in df.columns and "position" not in df.columns:
-            df["position"] = df["residue_id"]
-        
-        # Always include base physics results
-        result_cols = ["chain", "position", "aa", "cl", "bfactor", "plddt", 
-                      "bfactor_norm", "hydro_entropy", "charge_entropy",
-                      "bfactor_curv", "bfactor_curv_entropy", "bfactor_curv_flips"]
-        
-        # Add ML predictions if available
-        if REGRESSOR is not None and HALLUC_MODEL is not None:
+        # Use all-atom by default to match external ground truth
+        obj = run_physics(await file.read(), bf_mode="all")
+        protein_id = obj.get("protein_id", file.filename or "protein")
+
+        # Optionally append ML columns on top of physics (without changing shape)
+        df = pd.DataFrame(obj["residues"])
+        result_cols = list(df.columns)
+
+        if REGRESSOR is not None and HALLUC_MODEL is not None and not df.empty:
             try:
-                df = add_main_prediction(df)
-                df = add_hallucination_prediction(df)
-                
-                result_cols.extend(["cl_pred", "hallucination", "halluc_score"])
-                
-                # Add hallucination labels
-                df["hallucination_label"] = df["halluc_score"].apply(
-                    lambda x: "Likely" if x > 0.7 else "Possible" if x > 0.3 else "Unlikely"
-                )
-                result_cols.append("hallucination_label")
-                
-                print("🔬 Added ML predictions")
-                
+                # predict on df copy, then merge back into residues
+                df_ml = df.copy()
+                # compat: ensure expected cols exist
+                for col in ["plddt","bfactor_norm","hydro_entropy","charge_entropy",
+                            "bfactor_curv","bfactor_curv_entropy","bfactor_curv_flips"]:
+                    if col not in df_ml.columns: df_ml[col] = 0.0
+                df_ml = add_main_prediction(df_ml)
+                df_ml = add_hallucination_prediction(df_ml)
+                # preserve original order + append new cols if created
+                for col in ["cl_pred","hallucination","halluc_score"]:
+                    if col in df_ml.columns and col not in result_cols:
+                        result_cols.append(col)
+                df = df_ml[result_cols]
             except Exception as e:
-                print(f"⚠️ ML prediction failed: {e}")
-                # Add empty columns
-                df["hallucination"] = 0
-                df["halluc_score"] = 0.0
-                df["hallucination_label"] = "Unknown"
-                result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
-        else:
-            # Add empty columns
-            df["hallucination"] = 0
-            df["halluc_score"] = 0.0
-            df["hallucination_label"] = "Unknown"
-            result_cols.extend(["hallucination", "halluc_score", "hallucination_label"])
-        
-        # Add stability note
-        df["note"] = df["cl"].apply(lambda x: "Unstable" if x > 0.6 else "Stable")
-        result_cols.append("note")
-        
-        # Add protein name if available
-        if "protein" in df.columns:
-            result_cols.insert(0, "protein")
-        
-        # Filter to available columns
-        available_cols = [col for col in result_cols if col in df.columns]
-        result = df[available_cols].to_dict("records")
-        
-        print(f"✅ Returning {len(result)} residues")
-        return JSONResponse(content=result)
-        
+                print(f"⚠️ ML enhancement failed, returning physics-only: {e}")
+
+        obj["residues"] = df.to_dict("records")
+        return JSONResponse(content=obj)
     except Exception as e:
         print(f"❌ Analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/disprot-predict")
-async def disprot_predict_fallback(file: UploadFile = File(...)):
-    """Enhanced DisProt prediction with physics-based fallback"""
-    try:
-        print(f"📥 DisProt prediction for: {file.filename}")
-        df = run_physics(await file.read())
-        
-        result = []
-        for i, row in df.iterrows():
-            cl = row.get("cl", 0.0)
-            rev_cl = 1.0 - cl
-            entropy = row.get("hydro_entropy", 0.0)
-            curvature = abs(row.get("bfactor_curv", 0.0))
-            
-            # Enhanced physics-based disorder prediction
-            # Disorder correlates with: high entropy, low collapse likelihood, high curvature
-            base_disorder = (entropy * 0.4) + (rev_cl * 0.4) + (curvature * 0.2)
-            
-            # Apply sigmoid-like transformation for better range
-            import math
-            disprot_prob = 1 / (1 + math.exp(-5 * (base_disorder - 0.5)))
-            disprot_prob = min(max(disprot_prob, 0.0), 1.0)
-            
-            # Enhanced hallucination scoring based on feature consistency
-            bfactor_norm = row.get("bfactor_norm", 0.0)
-            charge_entropy = row.get("charge_entropy", 0.0)
-            
-            # Inconsistent features suggest potential hallucination
-            feature_variance = abs(entropy - charge_entropy) + abs(bfactor_norm - 0.5)
-            halluc_score = min(feature_variance, 1.0)
-            
-            result.append({
-                "chain": str(row.get("chain", "A")),
-                "position": int(row.get("residue_id", i + 1)),
-                "aa": str(row.get("aa", "")),
-                "rev_cl": float(rev_cl),
-                "entropy": float(entropy),
-                "disprot_prob": float(disprot_prob),
-                "hallucination_score": float(halluc_score)
-            })
-        
-        model_status = "ML" if DISPROT_MODEL else "physics-based"
-        disorder_count = sum(1 for r in result if r["disprot_prob"] > 0.7)
-        print(f"✅ DisProt prediction ({model_status}): {disorder_count}/{len(result)} disordered")
-        
-        return JSONResponse(content={"results": result})
-        
-    except Exception as e:
-        print(f"❌ DisProt prediction error: {e}")
-        raise HTTPException(status_code=500, detail=f"DisProt prediction failed: {str(e)}")
 
 @app.get("/")
 def health_check():
