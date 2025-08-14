@@ -7,6 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
 import tempfile, joblib, pandas as pd, numpy as np, warnings
+import io, hashlib
+from typing import List, Dict
+from Bio.PDB import PDBParser
+from scipy.stats import entropy as shannon_entropy
 
 # ───────────────────────────────────────────
 # 1)  load physics extractor
@@ -481,6 +485,111 @@ async def run_hallucination_model(file: UploadFile) -> dict:
         df["halluc_score"] = 0.0
         return df[["chain", "position", "aa", "cl", "cl_pred", "hallucination", "halluc_score", "bfactor", "plddt"]].to_dict("records")
 
+# === UTILS: md5 of uploaded content (for traceability) ===
+def _md5_bytes(b: bytes) -> str:
+    h = hashlib.md5()
+    h.update(b)
+    return h.hexdigest()
+
+# === CORE: parse PDB (CA-only) and extract raw 'support' ===
+def _parse_pdb_ca_support(pdb_bytes: bytes) -> pd.DataFrame:
+    """
+    Returns a DataFrame with CA-only per-residue raw support and identity.
+    AF: support= pLDDT (stored in B-factor); X-ray: support = B-factor.
+    """
+    text = pdb_bytes.decode("utf-8", errors="ignore")
+    is_af = ("ALPHAFOLD" in text.upper()) or any(line.startswith("COMPND   2 MODEL:") and "ALPHAFOLD" in line.upper()
+                                                for line in text.splitlines()[:120])
+
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure("X", io.StringIO(text))
+
+    rows = []
+    for model in structure:
+        # use first model only for residue-level summaries
+        for chain in model:
+            for res in chain:
+                if "CA" not in res:
+                    continue
+                ca = res["CA"]
+                b  = float(ca.get_bfactor())
+                rows.append({
+                    "chain": chain.id,
+                    "position": int(res.id[1]),
+                    "icode": res.id[2] if isinstance(res.id, tuple) and len(res.id) > 2 else " ",
+                    "aa": res.get_resname(),
+                    "support": b,            # AF: pLDDT in [0,100] ; X-ray: B-factor
+                    "is_af": is_af
+                })
+        break  # only first model
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        raise ValueError("No CA atoms found in PDB.")
+
+    # Normalize support to [0,1] per protein for consistent later math:
+    # AF: pLDDT_norm = pLDDT / 100
+    # X-ray: B_norm = min-max per protein (robust to outliers via 5th–95th percentiles)
+    if df["is_af"].iloc[0]:
+        df["support_norm"] = np.clip(df["support"] / 100.0, 0.0, 1.0)
+        support_type = "plddt"
+    else:
+        lo = np.percentile(df["support"].values, 5)
+        hi = np.percentile(df["support"].values, 95)
+        df["support_norm"] = np.clip((df["support"] - lo) / (hi - lo + 1e-9), 0.0, 1.0)
+        support_type = "bfactor"
+
+    # Define an "uncertainty" channel (higher = more disorder) used by proxy EWCL:
+    # AF: uncertainty = 1 - pLDDT_norm ; X-ray: uncertainty = B_norm
+    if support_type == "plddt":
+        df["uncertainty_norm"] = 1.0 - df["support_norm"]
+    else:
+        df["uncertainty_norm"] = df["support_norm"]
+
+    df["support_type"] = support_type
+    return df
+
+# === HELPER: sliding-window entropy over a 1D array in [0,1] ===
+def _local_entropy(x: np.ndarray, win: int = 7, bins: int = 10) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    out = np.zeros(n, dtype=float)
+    half = win // 2
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    for i in range(n):
+        s = max(0, i - half)
+        e = min(n, i + half + 1)
+        hist, _ = np.histogram(x[s:e], bins=edges, density=True)
+        out[i] = shannon_entropy(hist + 1e-12)  # avoid log(0)
+    # normalize entropy to [0,1]
+    if out.max() > out.min():
+        out = (out - out.min()) / (out.max() - out.min())
+    return out
+
+# === PROXY: compute EWCL-Proxy from uncertainty + entropy (CA-only) ===
+def compute_proxy_from_pdb_bytes(pdb_bytes: bytes,
+                                 alpha: float = 0.75,
+                                 beta: float = 0.35,
+                                 win: int = 7) -> pd.DataFrame:
+    """
+    EWCL-Proxy: a reweighting of local 'uncertainty' (disorder proxy) with a local
+    entropy term. Higher cl_proxy means higher collapse likelihood (instability).
+      - alpha controls how strongly uncertainty drives the score
+      - beta  controls entropy contribution
+    """
+    df = _parse_pdb_ca_support(pdb_bytes)
+    u  = df["uncertainty_norm"].values  # [0,1], higher = more disorder
+    he = _local_entropy(df["support_norm"].values, win=win)
+
+    # Combine channels — stays in [0,1] and non-linear:
+    # (1) uncertainty^alpha increases contrast at the high-uncertainty end
+    # (2) + beta * entropy highlights locally heterogeneous regions
+    cl = np.clip((u ** alpha) + beta * he, 0.0, 1.0)
+
+    df["cl_proxy"] = cl
+    df["rev_cl_proxy"] = 1.0 - cl  # convenience for users who want the inverse
+    return df
+
 # ───────────────────────────────────────────
 # 4)  FastAPI app (renamed for uvicorn compatibility)
 # ───────────────────────────────────────────
@@ -548,6 +657,52 @@ async def analyze_hallucination(file: UploadFile = File(...)):
         return JSONResponse(content=result)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/analyze/proxy")
+async def analyze_proxy(file: UploadFile = File(...)):
+    """
+    EWCL-Proxy: entropy-weighted re-interpretation of pLDDT/B (CA-only).
+    Returns per-residue records + file-level metadata for QC.
+    """
+    try:
+        pdb_bytes = await file.read()
+        pid = (file.filename or "input").replace(".pdb", "")
+        md5 = _md5_bytes(pdb_bytes)
+
+        df = compute_proxy_from_pdb_bytes(pdb_bytes)
+        support_source = df["support_type"].iloc[0]
+        is_af = bool(df["is_af"].iloc[0])
+
+        # unify residue output
+        out_rows: List[Dict] = []
+        for _, r in df.iterrows():
+            out_rows.append({
+                "chain": str(r["chain"]),
+                "position": int(r["position"]),
+                "aa": str(r["aa"]),
+                # raw support side-by-side for frontend correlation/QC
+                "support": float(r["support"]),               # AF: pLDDT; X-ray: B-factor
+                "support_type": support_source,               # "plddt" | "bfactor"
+                "support_norm": float(r["support_norm"]),     # [0,1], higher=more confidence (AF) or higher B-norm (X-ray)
+                "uncertainty_norm": float(r["uncertainty_norm"]),  # [0,1], higher=more disorder proxy
+                # EWCL-Proxy outputs
+                "cl": float(r["cl_proxy"]),        # collapse likelihood (proxy)
+                "rev_cl": float(r["rev_cl_proxy"]) # 1 - cl
+            })
+
+        # file-level envelope mirrors your other endpoints
+        envelope = {
+            "protein_id": pid,
+            "model_type": "proxy",
+            "support_source": support_source,
+            "is_af": is_af,
+            "version": "2025.08",
+            "input_md5": md5,
+            "residues": out_rows
+        }
+        return JSONResponse(content=envelope)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Proxy analysis failed: {e}")
 
 @app.post("/analyze-rev-ewcl")
 async def analyze_reverse_ewcl(file: UploadFile = File(...)):
@@ -712,6 +867,7 @@ def health_check():
             "POST /api/analyze/regressor": f"Physics + ML regressor ({'available' if REGRESSOR else 'fallback to physics'})",
             "POST /api/analyze/refined": f"Physics + refined model ({'available' if HIGH_MODEL else 'fallback to physics'})",
             "POST /api/analyze/hallucination": f"Physics + hallucination detection ({'available' if HALLUC_MODEL else 'fallback to physics'})",
+            "POST /api/analyze/proxy": "EWCL-Proxy: entropy-weighted pLDDT/B-factor analysis (CA-only)",
         },
         "models_loaded": {
             "regressor": REGRESSOR is not None,
