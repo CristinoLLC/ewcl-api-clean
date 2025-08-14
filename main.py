@@ -16,6 +16,15 @@ def _md5_bytes(b: bytes) -> str:
     import hashlib
     h = hashlib.md5(); h.update(b); return h.hexdigest()
 
+def add_rev_cl(df: pd.DataFrame, cl_col: str = "cl", out_col: str = "rev_cl") -> pd.DataFrame:
+    """Append reversed collapse likelihood: rev_cl = 1 - cl, clipped to [0,1]."""
+    if cl_col not in df.columns:
+        df[out_col] = np.nan
+        return df
+    x = pd.to_numeric(df[cl_col], errors="coerce").astype(float)
+    df[out_col] = np.clip(1.0 - x, 0.0, 1.0)
+    return df
+
 def run_physics(pdb_bytes: bytes, bf_mode: str = "ca") -> dict:
     """Wrap your physics extractor into a uniform dict."""
     import tempfile, os, json
@@ -151,14 +160,41 @@ async def analyze_pdb(file: UploadFile = File(...)):
     try:
         pdb_bytes = await file.read()
         obj = run_physics(pdb_bytes, bf_mode="ca")  # returns {"protein_id", "residues":[...]}
+        protein_id = obj.get("protein_id", file.filename or "protein")
+        df = pd.DataFrame(obj.get("residues", []))
+        if not df.empty:
+            df = add_rev_cl(df, "cl", "rev_cl")
+            result_cols = list(df.columns)
+            if "rev_cl" not in result_cols:
+                result_cols.append("rev_cl")
+            obj["residues"] = df[result_cols].to_dict("records")
+        obj.setdefault("protein_id", protein_id)
         return JSONResponse(content=obj)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"physics failed: {e}")
 
 @app.post("/api/analyze/raw")
 async def analyze_raw(file: UploadFile = File(...)):
-    # exact alias to physics
-    return await analyze_pdb(file)
+    """Physics-only EWCL with rev_cl, returns list of residue dicts."""
+    try:
+        pdb_bytes = await file.read()
+        obj = run_physics(pdb_bytes, bf_mode="ca")
+        df = obj if isinstance(obj, pd.DataFrame) else pd.DataFrame(obj.get("residues", obj))
+        if df.empty:
+            return []
+        df = add_rev_cl(df, "cl", "rev_cl")
+        result_cols = [c for c in [
+            "chain","position","aa","cl","rev_cl","bfactor","plddt",
+            "bfactor_norm","hydro_entropy","charge_entropy",
+            "bfactor_curv","bfactor_curv_entropy","bfactor_curv_flips"
+        ] if c in df.columns]
+        if not result_cols:
+            result_cols = list(df.columns)
+            if "rev_cl" not in result_cols:
+                result_cols.append("rev_cl")
+        return df[result_cols].to_dict("records")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"physics(raw) failed: {e}")
 
 @app.post("/api/analyze/proxy")
 async def analyze_proxy(file: UploadFile = File(...)):
