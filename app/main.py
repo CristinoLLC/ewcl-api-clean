@@ -1,14 +1,10 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pathlib import Path
-import tempfile, hashlib, io, pandas as pd, numpy as np
-from typing import List, Dict
-from Bio.PDB import PDBParser
-from scipy.stats import entropy as shannon_entropy
+import hashlib, io
 
 # --- physics (keep your existing file) ---
-from models.enhanced_ewcl_af import compute_curvature_features  # physics extractor
+  # heavy imports are lazily loaded inside functions
 
 # -----------------------
 # helpers (no ML here)
@@ -18,16 +14,21 @@ def _md5_bytes(b: bytes) -> str:
 
 def run_physics(pdb_bytes: bytes, bf_mode: str = "ca") -> dict:
     """Run physics extractor on a temp file (CA-only B-factor policy)."""
+    import tempfile
+    from models.enhanced_ewcl_af import compute_curvature_features
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdb")
     tmp.write(pdb_bytes); tmp.close()
     return compute_curvature_features(tmp.name, bf_mode=bf_mode)
 
 # === CORE: parse PDB (CA-only) and extract raw 'support' ===
-def _parse_pdb_ca_support(pdb_bytes: bytes) -> pd.DataFrame:
+def _parse_pdb_ca_support(pdb_bytes: bytes):
     """
     Returns a DataFrame with CA-only per-residue raw support and identity.
     AF: support= pLDDT (stored in B-factor); X-ray: support = B-factor.
     """
+    import pandas as pd
+    import numpy as np
+    from Bio.PDB import PDBParser
     text = pdb_bytes.decode("utf-8", errors="ignore")
     is_af = ("ALPHAFOLD" in text.upper()) or any(line.startswith("COMPND   2 MODEL:") and "ALPHAFOLD" in line.upper()
                                                 for line in text.splitlines()[:120])
@@ -81,7 +82,9 @@ def _parse_pdb_ca_support(pdb_bytes: bytes) -> pd.DataFrame:
     return df
 
 # === HELPER: sliding-window entropy over a 1D array in [0,1] ===
-def _local_entropy(x: np.ndarray, win: int = 7, bins: int = 10) -> np.ndarray:
+def _local_entropy(x, win: int = 7, bins: int = 10):
+    import numpy as np
+    from scipy.stats import entropy as shannon_entropy
     x = np.asarray(x, dtype=float)
     n = len(x)
     out = np.zeros(n, dtype=float)
@@ -106,13 +109,15 @@ PROXY_WIN   = 7      # sliding window size for entropy
 def compute_proxy_from_pdb_bytes(pdb_bytes: bytes,
                                  alpha: float = PROXY_ALPHA,
                                  beta: float  = PROXY_BETA,
-                                 win: int     = PROXY_WIN) -> pd.DataFrame:
+                                 win: int     = PROXY_WIN):
     """
     EWCL-Proxy: a reweighting of local 'uncertainty' (disorder proxy) with a local
     entropy term. Higher cl_proxy means higher collapse likelihood (instability).
       - alpha controls how strongly uncertainty drives the score
       - beta  controls entropy contribution
     """
+    import numpy as np
+    import pandas as pd
     df = _parse_pdb_ca_support(pdb_bytes)
     u  = df["uncertainty_norm"].values  # [0,1], higher = more disorder
     he = _local_entropy(df["support_norm"].values, win=win)
@@ -225,6 +230,7 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
     """Reverse physics CL for instability highlighting: rev_cl = 1 - cl."""
     try:
         obj = run_physics(await file.read(), bf_mode="ca")
+        import pandas as pd
         df = pd.DataFrame(obj.get("residues", []))
         if df.empty:
             raise ValueError("No residues found in PDB.")
@@ -351,6 +357,7 @@ async def disprot_predict_fallback(file: UploadFile = File(...)):
     try:
         print(f"📥 DisProt prediction for: {file.filename}")
         obj = run_physics(await file.read(), bf_mode="ca")
+        import pandas as pd
         df = pd.DataFrame(obj.get("residues", []))
         
         result = []
