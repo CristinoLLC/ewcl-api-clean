@@ -97,11 +97,16 @@ def _local_entropy(x: np.ndarray, win: int = 7, bins: int = 10) -> np.ndarray:
         out = (out - out.min()) / (out.max() - out.min())
     return out
 
+# === PROXY DEFAULTS (lock these) ===
+PROXY_ALPHA = 0.75   # nonlinearity on uncertainty
+PROXY_BETA  = 0.35   # weight on local entropy
+PROXY_WIN   = 7      # sliding window size for entropy
+
 # === PROXY: compute EWCL-Proxy from uncertainty + entropy (CA-only) ===
 def compute_proxy_from_pdb_bytes(pdb_bytes: bytes,
-                                 alpha: float = 0.75,
-                                 beta: float = 0.35,
-                                 win: int = 7) -> pd.DataFrame:
+                                 alpha: float = PROXY_ALPHA,
+                                 beta: float  = PROXY_BETA,
+                                 win: int     = PROXY_WIN) -> pd.DataFrame:
     """
     EWCL-Proxy: a reweighting of local 'uncertainty' (disorder proxy) with a local
     entropy term. Higher cl_proxy means higher collapse likelihood (instability).
@@ -289,6 +294,7 @@ def health_check():
         "status": "EWCL Physics + Proxy API v2025.0.2", 
         "message": "Model-free API is running successfully",
         "physics_only": True,
+        "proxy_defaults": {"alpha": PROXY_ALPHA, "beta": PROXY_BETA, "win": PROXY_WIN, "bf_mode": "ca"},
         "endpoints": {
             "GET /": "Health check",
             "GET /health": "Detailed health status",
@@ -313,6 +319,7 @@ def health():
         "status": "ok",
         "version": "2025.0.2",
         "models_loaded": False,
+        "proxy_defaults": {"alpha": PROXY_ALPHA, "beta": PROXY_BETA, "win": PROXY_WIN, "bf_mode": "ca"},
         "endpoints": [
             "POST /api/analyze/raw",
             "POST /api/analyze/proxy", 
