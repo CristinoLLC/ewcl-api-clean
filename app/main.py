@@ -13,8 +13,8 @@ import tempfile, joblib, pandas as pd, numpy as np, warnings
 # ───────────────────────────────────────────
 from models.enhanced_ewcl_af import compute_curvature_features  # physics extractor
 
-def run_physics(pdb_bytes: bytes, bf_mode: str = "all") -> dict:
-    """Physics extractor → uniform dict { protein_id, summary, residues }."""
+def run_physics(pdb_bytes: bytes, bf_mode: str = "ca") -> dict:
+    """Physics extractor → uniform dict { protein_id, summary, residues }. Now CA-only."""
     import tempfile
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdb")
     tmp.write(pdb_bytes); tmp.close()
@@ -559,8 +559,8 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
     try:
         print(f"📥 Reverse EWCL analysis for: {file.filename}")
         
-        # Use the new uniform extractor
-        obj = run_physics(await file.read(), bf_mode="all")
+        # Use the new uniform extractor with CA-only
+        obj = run_physics(await file.read(), bf_mode="ca")
         df = pd.DataFrame(obj["residues"])
         
         if df.empty:
@@ -659,11 +659,12 @@ async def analyze_reverse_ewcl(file: UploadFile = File(...)):
 async def analyze_pdb_direct(file: UploadFile = File(...)):
     """
     Direct analyze-pdb endpoint (uniform output; physics first).
+    Now uses CA-only for consistency.
     """
     try:
         print(f"📥 Received file: {file.filename}")
-        # Use all-atom by default to match external ground truth
-        obj = run_physics(await file.read(), bf_mode="all")
+        # Use CA-only for consistency
+        obj = run_physics(await file.read(), bf_mode="ca")
         protein_id = obj.get("protein_id", file.filename or "protein")
 
         # Optionally append ML columns on top of physics (without changing shape)

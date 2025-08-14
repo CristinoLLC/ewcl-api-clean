@@ -10,6 +10,9 @@ from Bio.PDB import PDBParser
 from scipy.signal import savgol_filter
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import entropy
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from utils_support import iter_CA_records
 
 HYDROPATHY = {'ALA':1.8,'ARG':-4.5,'ASN':-3.5,'ASP':-3.5,'CYS':2.5,'GLN':-3.5,'GLU':-3.5,'GLY':-0.4,'HIS':-3.2,'ILE':4.5,'LEU':3.8,'LYS':-3.9,'MET':1.9,'PHE':2.8,'PRO':-1.6,'SER':-0.8,'THR':-0.7,'TRP':-0.9,'TYR':-1.3,'VAL':4.2}
 CHARGE     = {aa:0 for aa in HYDROPATHY}; CHARGE.update({'ASP':-1,'GLU':-1,'ARG':1,'LYS':1,'HIS':0.5})
@@ -43,70 +46,50 @@ def _sign_flip_ratio(arr, win=5):
         out[i] = np.sum(np.diff(d) != 0) / max(1, len(d)-1)
     return out
 
-def compute_curvature_features(pdb_path: str, bf_mode: str = "all", ent_win=5, curv_win=5):
+def compute_curvature_features(pdb_path: str, bf_mode: str = "ca", ent_win=5, curv_win=5):
     """
-    bf_mode: "all" (mean over all atoms in residue) | "ca" (CA only)
+    CA-only support with proper altLoc handling.
+    bf_mode: now defaults to "ca" for consistency
     Returns a uniform object: { protein_id, summary, residues:[...] }
     """
     # detect AF by header or filename
     with open(pdb_path, 'r', encoding='utf-8', errors='ignore') as fh:
         head = ''.join([fh.readline() for _ in range(60)])
-    is_af = bool(re.search(r'ALPHAFOLD', head, re.I)) or os.path.basename(pdb_path).startswith("AF-")
-
-    parser = PDBParser(QUIET=True)
-    structure = parser.get_structure("X", pdb_path)[0]
+    is_alphafold = "ALPHAFOLD" in head.upper() or os.path.basename(pdb_path).startswith("AF-")
+    
     protein_id = os.path.splitext(os.path.basename(pdb_path))[0]
-
-    # collect per-residue features
-    residues = []
-    for res in structure.get_residues():
-        # skip het/water
-        hetflag, resseq, icode = res.id
-        if hetflag != " ": 
-            continue
-
-        # atoms B list
-        b_all = []
-        for atom in res.get_atoms():
-            try:
-                b_all.append(float(atom.get_bfactor()))
-            except Exception:
-                pass
-
-        if not b_all:
-            continue
-
-        bfactor_all = float(np.mean(b_all))
-        bfactor_ca  = None
-        if "CA" in res:
-            bfactor_ca = float(res["CA"].get_bfactor())
-
-        # AlphaFold: B-factor column carries pLDDT
-        plddt = bfactor_ca if (is_af and bfactor_ca is not None) else (bfactor_all if is_af else None)
-
-        residues.append(dict(
-            chain=res.get_parent().id,
-            position=resseq,
-            aa=res.get_resname(),
-            bfactor_all=bfactor_all,
-            bfactor_ca=bfactor_ca,
-            plddt=plddt
-        ))
-
-    if not residues:
+    
+    # Use CA-only iterator with altLoc filtering
+    CA = list(iter_CA_records(pdb_path))
+    
+    if not CA:
         return dict(protein_id=protein_id, summary=dict(total_residues=0), residues=[])
-
-    df = pd.DataFrame(residues).reset_index(drop=True)
-
-    # choose which bfactor to expose
-    if bf_mode == "ca":
-        df["bfactor"] = df["bfactor_ca"]
-        bsrc = "CA"
+    
+    chain_ids, seq_ids, icodes, aa3s, support = zip(*CA)
+    
+    if is_alphafold:
+        # AlphaFold: pLDDT is stored in B-factor column; treat as pLDDT
+        plddt = list(support)
+        bfactor = [None] * len(plddt)
     else:
-        df["bfactor"] = df["bfactor_all"]
-        bsrc = "ALL"
-
-    # physics features (use exposed bfactor stream)
+        bfactor = list(support)
+        plddt = [None] * len(bfactor)
+    
+    # Create DataFrame with consistent structure
+    residues_data = []
+    for i, (chain_id, seq_id, icode, aa3, supp_val) in enumerate(CA):
+        residues_data.append(dict(
+            chain=chain_id,
+            position=seq_id,
+            icode=icode if icode.strip() else '',
+            aa=aa3,
+            bfactor=bfactor[i] if not is_alphafold else supp_val,
+            plddt=plddt[i] if is_alphafold else None
+        ))
+    
+    df = pd.DataFrame(residues_data).reset_index(drop=True)
+    
+    # physics features (use bfactor stream - always CA now)
     b = df["bfactor"].fillna(0).to_numpy(float)
     b_norm = _norm(b)
     hydro = np.array([HYDROPATHY.get(aa,0) for aa in df["aa"]])
@@ -141,8 +124,8 @@ def compute_curvature_features(pdb_path: str, bf_mode: str = "all", ent_win=5, c
         protein_id=protein_id,
         summary=dict(
             total_residues=int(len(df)),
-            is_alphafold=bool(is_af),
-            bfactor_source=bsrc
+            is_alphafold=bool(is_alphafold),
+            bfactor_source="CA"  # Always CA now
         ),
         residues=df[[
             "chain","position","aa","cl","bfactor","plddt",
@@ -153,8 +136,9 @@ def compute_curvature_features(pdb_path: str, bf_mode: str = "all", ent_win=5, c
     return out
 
 # ──────────────── batch run ────────────────
-def run_batch(in_dir, out_dir, bf_mode="all"):
+def run_batch(in_dir, out_dir, bf_mode="ca"):
     os.makedirs(out_dir, exist_ok=True)
+    import glob
     for pdb in glob.glob(os.path.join(in_dir, "*.[pe][nb][td]")):
         recs = compute_curvature_features(pdb, bf_mode=bf_mode)
         with open(os.path.join(out_dir, os.path.splitext(os.path.basename(pdb))[0] + ".json"), "w") as fh:
@@ -162,11 +146,16 @@ def run_batch(in_dir, out_dir, bf_mode="all"):
     print(f"✅  Saved enhanced JSONs ➜  {out_dir}")
 
 def quick_corr(out_dir):
+    import glob
+    from scipy.stats import pearsonr
     rows = []
     for j in glob.glob(os.path.join(out_dir, "*.json")):
         with open(j) as fh:
             rows.extend(json.load(fh)["residues"])
     df = pd.DataFrame(rows)
+    if len(df) == 0:
+        print("No data found for correlation")
+        return
     r_b, p_b = pearsonr(df["cl"], df["bfactor"])
     msg = f"📈  r(CL, B-factor) = {r_b:+.3f}  (p={p_b:.1e})"
     if df["plddt"].notna().any():
@@ -177,10 +166,10 @@ def quick_corr(out_dir):
 # ──────────────── main (Colab-safe) ────────────────
 if __name__ == "__main__":
     import argparse
-    ap = argparse.ArgumentParser(description="Enhanced EWCL extractor (AlphaFold-aware)")
+    ap = argparse.ArgumentParser(description="Enhanced EWCL extractor (CA-only, AlphaFold-aware)")
     ap.add_argument("--in_dir", default="pdbs_af", help="folder with PDB/ENT files")
     ap.add_argument("--out_dir", default="jsons_af", help="where JSONs are written")
-    ap.add_argument("--bf_mode", default="all", choices=["all", "ca"], help="B-factor mode: all atoms or CA only")
+    ap.add_argument("--bf_mode", default="ca", choices=["ca"], help="B-factor mode: CA only (enforced)")
     ap.add_argument("--corr", action="store_true", help="print quick Pearson r")
     args, _ = ap.parse_known_args()  # ✅ fixes Colab argparse crash
 
