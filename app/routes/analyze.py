@@ -52,6 +52,8 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
     - X-ray: support = B-factor → normalized directly
     """
     df = df.copy()
+    # Force numeric dtype for support to avoid object arrays
+    df["support"] = pd.to_numeric(df["support"], errors="coerce").astype(float)
     df["support_type"] = source_type
 
     if source_type == "plddt":
@@ -78,10 +80,10 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
         else:
             df["sanitized"] = False
 
-    elif source_type == "b_factor":
-        # Sanitized pass-through for X-ray: normalize and set auxiliary fields to nulls
-        max_support = float(np.nanmax(df["support"])) if len(df) else 1.0
-        df["support_norm"] = df["support"] / (max_support + 1e-6)
+    elif source_type == "bfactor":
+        # Sanitized pass-through for X-ray: per-chain max normalization
+        chain_max = df.groupby("chain")["support"].transform("max").astype(float)
+        df["support_norm"] = df["support"].astype(float) / (chain_max + 1e-6)
         df["inv_conf"] = None
         df["entropy"] = None
         df["cl_raw"] = None
@@ -106,7 +108,7 @@ async def analyze_main(file: UploadFile = File(...)):
         if df.empty:
             raise HTTPException(status_code=400, detail="No residues found in PDB")
 
-        source_type = "plddt" if float(df["support"].max()) <= 100.0 else "b_factor"
+        source_type = "plddt" if float(df["support"].max()) <= 100.0 else "bfactor"
         df = compute_ewcl(df, source_type)
 
         return {"residues": df.to_dict(orient="records"), "n": int(len(df)), "source_type": source_type}
