@@ -93,15 +93,25 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
             df["sanitized"] = False
 
     elif source_type == "bfactor":
-        # Sanitized pass-through for X-ray: per-chain max normalization
+        # X-ray EWCL: normalized B-factor → inv_conf → entropy → cl_raw/cl_norm/rev_cl
         chain_max = df.groupby("chain")["support"].transform("max").astype(float)
         df["support_norm"] = df["support"].astype(float) / (chain_max + 1e-6)
-        df["inv_conf"] = None
-        df["entropy"] = None
-        df["cl_raw"] = None
-        df["cl_norm"] = None
-        df["rev_cl"] = None
-        # sanitized field is set in parse step; ensure it exists
+        df["inv_conf"] = 1.0 - df["support_norm"]
+
+        arr = df["inv_conf"].to_numpy()
+        ent = np.zeros_like(arr, dtype=float)
+        half = w // 2
+        for i in range(len(arr)):
+            lo, hi = max(0, i - half), min(len(arr), i + half + 1)
+            window = arr[lo:hi]
+            hist, _ = np.histogram(window, bins=10, range=(0, 1), density=True)
+            hist = hist + 1e-6
+            ent[i] = shannon_entropy(hist, base=2)
+        df["entropy"] = ent
+
+        df["cl_raw"] = alpha * df["inv_conf"] + beta * df["entropy"]
+        df["cl_norm"] = df.groupby("chain")["cl_raw"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
+        df["rev_cl"] = 1.0 - df["cl_norm"]
         if "sanitized" not in df.columns:
             df["sanitized"] = False
 
