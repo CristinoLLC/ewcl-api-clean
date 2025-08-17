@@ -101,15 +101,24 @@ def _local_entropy(x: np.ndarray, win: int = 7, bins: int = 10) -> np.ndarray:
     return out
 
 def compute_proxy_from_pdb_bytes(pdb_bytes: bytes,
-                                 alpha: float = 0.75,
-                                 beta: float = 0.35,
-                                 win: int = 7) -> pd.DataFrame:
+                                 alpha: float = 0.7,
+                                 beta: float = 0.3,
+                                 win: int = 15) -> pd.DataFrame:
     df = _parse_pdb_ca_support(pdb_bytes)
-    u  = df["uncertainty_norm"].values
-    he = _local_entropy(df["support_norm"].values, win=win)
-    cl = np.clip((u ** alpha) + beta * he, 0.0, 1.0)
-    df["cl_proxy"] = cl
-    df["rev_cl_proxy"] = 1.0 - cl
+    # Base inverse confidence proxy
+    df["inv_conf"] = df["uncertainty_norm"].astype(float)
+
+    # Entropy-aware proxy only for AlphaFold inputs
+    if df["support_type"].iloc[0] == "plddt":
+        he = _local_entropy(df["support_norm"].values, win=win)
+        df["proxy_entropy"] = np.clip(alpha * df["inv_conf"].values + beta * he, 0.0, 1.0)
+        cl = df["proxy_entropy"].values
+    else:
+        # X-ray: leave as inverse confidence only
+        cl = df["inv_conf"].values
+
+    df["cl_proxy"] = np.asarray(cl, dtype=float)
+    df["rev_cl_proxy"] = 1.0 - df["cl_proxy"]
     return df
 
 # ─────────────────────────────────────────
@@ -217,9 +226,13 @@ async def analyze_proxy(file: UploadFile = File(...)):
                 "support_type": support_type,
                 "support_norm": float(r["support_norm"]),
                 "uncertainty_norm": float(r["uncertainty_norm"]),
+                "inv_conf": float(r["inv_conf"]),
                 "cl": float(r["cl_proxy"]),
                 "rev_cl": float(r["rev_cl_proxy"]),
             })
+            # Include entropy-aware proxy only when present (AlphaFold branch)
+            if "proxy_entropy" in r and not pd.isna(r["proxy_entropy"]):
+                residues[-1]["proxy_entropy"] = float(r["proxy_entropy"])
 
         envelope = {
             "protein_id": pid,
