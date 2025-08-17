@@ -72,7 +72,7 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
         df["cl_raw"] = alpha * df["inv_conf"] + beta * df["entropy"]
         df["cl_norm"] = df.groupby("chain")["cl_raw"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
 
-    elif source_type == "bfactor":
+    elif source_type == "b_factor":
         df["support_norm"] = df.groupby("chain")["support"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
         df["inv_conf"] = df["support_norm"]
         # Do not emit NaN in JSON; use None to serialize as null
@@ -96,7 +96,7 @@ async def analyze_main(file: UploadFile = File(...)):
         if df.empty:
             raise HTTPException(status_code=400, detail="No residues found in PDB")
 
-        source_type = "plddt" if float(df["support"].max()) <= 100.0 else "bfactor"
+        source_type = "plddt" if float(df["support"].max()) <= 100.0 else "b_factor"
         df = compute_ewcl(df, source_type)
 
         return {"residues": df.to_dict(orient="records"), "n": int(len(df)), "source_type": source_type}
