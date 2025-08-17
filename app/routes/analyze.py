@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import entropy as shannon_entropy
 import io
+import math
 
 router = APIRouter()
 
@@ -17,15 +18,29 @@ def parse_pdb(file_bytes: bytes) -> pd.DataFrame:
     rows = []
     for model in structure:
         for chain in model:
+            # Precompute valid chain B-factors for sanitization fallback
+            chain_bfactors = [a.get_bfactor() for a in chain.get_atoms()]
+            valid_chain_bfactors = [float(v) for v in chain_bfactors if np.isfinite(v) and float(v) >= 0.0]
+            median_chain_b = float(np.median(valid_chain_bfactors)) if valid_chain_bfactors else 0.0
+
             for res in chain:
                 if "CA" not in res:
                     continue
                 atom = res["CA"]
+                raw_b = atom.get_bfactor()
+                if not np.isfinite(raw_b) or float(raw_b) < 0.0:
+                    bfactor = median_chain_b
+                    sanitized = True
+                else:
+                    bfactor = float(raw_b)
+                    sanitized = False
+
                 rows.append({
                     "chain": chain.id,
                     "position": res.id[1],
                     "aa": res.resname,
-                    "support": float(atom.get_bfactor()),
+                    "support": bfactor,
+                    "sanitized": sanitized,
                 })
     return pd.DataFrame(rows)
 
@@ -60,7 +75,8 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
     elif source_type == "bfactor":
         df["support_norm"] = df.groupby("chain")["support"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
         df["inv_conf"] = df["support_norm"]
-        df["entropy"] = np.nan
+        # Do not emit NaN in JSON; use None to serialize as null
+        df["entropy"] = None
         df["cl_raw"] = df["support_norm"]
         df["cl_norm"] = df["support_norm"]
 
