@@ -69,16 +69,29 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
             ent[i] = shannon_entropy(hist, base=2)
         df["entropy"] = ent
 
-        df["cl_raw"] = alpha * df["inv_conf"] + beta * df["entropy"]
+        # EWCL collapse likelihood: inv_conf + entropy (per-chain normalized)
+        df["cl_raw"] = df["inv_conf"] + df["entropy"]
         df["cl_norm"] = df.groupby("chain")["cl_raw"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
 
     elif source_type == "b_factor":
+        # Normalize B-factors per chain
         df["support_norm"] = df.groupby("chain")["support"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
-        df["inv_conf"] = df["support_norm"]
-        # Do not emit NaN in JSON; use None to serialize as null
-        df["entropy"] = None
-        df["cl_raw"] = df["support_norm"]
-        df["cl_norm"] = df["support_norm"]
+        # For X-ray, do not emit inv_conf; send null for clarity
+        df["inv_conf"] = None
+        # Sliding-window entropy over normalized B-factors
+        arr = df["support_norm"].to_numpy()
+        ent = np.zeros_like(arr, dtype=float)
+        half = w // 2
+        for i in range(len(arr)):
+            lo, hi = max(0, i - half), min(len(arr), i + half + 1)
+            window = arr[lo:hi]
+            hist, _ = np.histogram(window, bins=10, range=(0, 1), density=True)
+            hist = hist + 1e-6
+            ent[i] = shannon_entropy(hist, base=2)
+        df["entropy"] = ent
+        # EWCL collapse likelihood: normalized B-factor + entropy (per-chain normalized)
+        df["cl_raw"] = df["support_norm"] + df["entropy"]
+        df["cl_norm"] = df.groupby("chain")["cl_raw"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
 
     return df
 
