@@ -74,6 +74,8 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
         # EWCL collapse likelihood: inv_conf + entropy (per-chain normalized)
         df["cl_raw"] = df["inv_conf"] + df["entropy"]
         df["cl_norm"] = df.groupby("chain")["cl_raw"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
+        # Reverse collapse likelihood: proxy for disorder
+        df["rev_cl"] = 1.0 - df["cl_norm"]
         # Ensure sanitized field exists and is boolean False for AF
         if "sanitized" not in df.columns:
             df["sanitized"] = False
@@ -88,6 +90,7 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
         df["entropy"] = None
         df["cl_raw"] = None
         df["cl_norm"] = None
+        df["rev_cl"] = None
         # sanitized field is set in parse step; ensure it exists
         if "sanitized" not in df.columns:
             df["sanitized"] = False
