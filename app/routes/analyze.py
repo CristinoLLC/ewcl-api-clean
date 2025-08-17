@@ -9,6 +9,16 @@ import math
 router = APIRouter()
 
 
+def detect_source(pdb_bytes: bytes) -> str:
+    """Detect source type from PDB header: returns 'plddt' or 'bfactor'."""
+    header = pdb_bytes.decode("utf-8", errors="ignore").upper()
+    if "EXPDTA    X-RAY DIFFRACTION" in header:
+        return "bfactor"
+    if "ALPHAFOLD" in header or "AFDB" in header:
+        return "plddt"
+    # Fallback to AF convention unless explicitly X-ray
+    return "plddt"
+
 def parse_pdb(file_bytes: bytes) -> pd.DataFrame:
     """Parse PDB into residue-level table (chain, position, aa, support)."""
     parser = PDBParser(QUIET=True)
@@ -107,11 +117,11 @@ async def analyze_main(file: UploadFile = File(...)):
     """
     try:
         content = await file.read()
+        source_type = detect_source(content)
         df = parse_pdb(content)
         if df.empty:
             raise HTTPException(status_code=400, detail="No residues found in PDB")
 
-        source_type = "plddt" if float(df["support"].max()) <= 100.0 else "bfactor"
         df = compute_ewcl(df, source_type)
 
         return {"residues": df.to_dict(orient="records"), "n": int(len(df)), "source_type": source_type}
