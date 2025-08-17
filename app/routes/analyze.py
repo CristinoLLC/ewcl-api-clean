@@ -1,0 +1,93 @@
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from Bio.PDB import PDBParser
+import numpy as np
+import pandas as pd
+from scipy.stats import entropy as shannon_entropy
+import io
+
+router = APIRouter()
+
+
+def parse_pdb(file_bytes: bytes) -> pd.DataFrame:
+    """Parse PDB into residue-level table (chain, position, aa, support)."""
+    parser = PDBParser(QUIET=True)
+    handle = io.StringIO(file_bytes.decode("utf-8", errors="ignore"))
+    structure = parser.get_structure("model", handle)
+
+    rows = []
+    for model in structure:
+        for chain in model:
+            for res in chain:
+                if "CA" not in res:
+                    continue
+                atom = res["CA"]
+                rows.append({
+                    "chain": chain.id,
+                    "position": res.id[1],
+                    "aa": res.resname,
+                    "support": float(atom.get_bfactor()),
+                })
+    return pd.DataFrame(rows)
+
+
+def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 0.5, beta: float = 0.5) -> pd.DataFrame:
+    """
+    Compute EWCL features.
+    - AlphaFold: support = pLDDT → inv_conf + entropy → cl_norm
+    - X-ray: support = B-factor → normalized directly
+    """
+    df = df.copy()
+    df["support_type"] = source_type
+
+    if source_type == "plddt":
+        df["support_norm"] = df["support"].astype(float) / 100.0
+        df["inv_conf"] = 1.0 - df["support_norm"]
+
+        arr = df["inv_conf"].to_numpy()
+        ent = np.zeros_like(arr, dtype=float)
+        half = w // 2
+        for i in range(len(arr)):
+            lo, hi = max(0, i - half), min(len(arr), i + half + 1)
+            window = arr[lo:hi]
+            hist, _ = np.histogram(window, bins=10, range=(0, 1), density=True)
+            hist = hist + 1e-6
+            ent[i] = shannon_entropy(hist, base=2)
+        df["entropy"] = ent
+
+        df["cl_raw"] = alpha * df["inv_conf"] + beta * df["entropy"]
+        df["cl_norm"] = df.groupby("chain")["cl_raw"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
+
+    elif source_type == "bfactor":
+        df["support_norm"] = df.groupby("chain")["support"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
+        df["inv_conf"] = df["support_norm"]
+        df["entropy"] = np.nan
+        df["cl_raw"] = df["support_norm"]
+        df["cl_norm"] = df["support_norm"]
+
+    return df
+
+
+@router.post("/api/analyze/main")
+async def analyze_main(file: UploadFile = File(...)):
+    """
+    EWCL proxy analyzer:
+      - Detect AlphaFold vs X-ray by support range
+      - Returns per-residue features: support, support_type, support_norm, inv_conf, entropy, cl_raw, cl_norm
+    """
+    try:
+        content = await file.read()
+        df = parse_pdb(content)
+        if df.empty:
+            raise HTTPException(status_code=400, detail="No residues found in PDB")
+
+        source_type = "plddt" if float(df["support"].max()) <= 100.0 else "bfactor"
+        df = compute_ewcl(df, source_type)
+
+        return {"residues": df.to_dict(orient="records"), "n": int(len(df)), "source_type": source_type}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
