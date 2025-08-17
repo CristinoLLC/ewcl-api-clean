@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 import io, hashlib, numpy as np, pandas as pd
 from typing import List, Dict
 from Bio.PDB import PDBParser
+from Bio import SeqIO
 from scipy.stats import entropy as shannon_entropy
 
 # ─────────────────────────────────────────
@@ -121,6 +122,33 @@ def compute_proxy_from_pdb_bytes(pdb_bytes: bytes,
     df["rev_cl_proxy"] = 1.0 - df["cl_proxy"]
     return df
 
+# --- New EWCL helpers for /api/analyze/main ---
+def shannon_entropy(window: np.ndarray) -> float:
+    hist, _ = np.histogram(window, bins=10, range=(0, 1), density=True)
+    hist = hist[hist > 0]
+    return float(-(hist * np.log(hist)).sum()) if len(hist) else 0.0
+
+def ewcl_from_alphafold(df: pd.DataFrame, win: int = 15) -> pd.DataFrame:
+    vals = df["inv_conf"].to_numpy(dtype=float)
+    ent = np.zeros_like(vals, dtype=float)
+    half = win // 2
+    for i in range(len(vals)):
+        lo, hi = max(0, i - half), min(len(vals), i + half + 1)
+        ent[i] = shannon_entropy(vals[lo:hi])
+    df["entropy"] = ent
+    df["cl_raw"] = df["inv_conf"] * df["entropy"]
+    lo, hi = float(df["cl_raw"].min()), float(df["cl_raw"].max())
+    df["cl_norm"] = (df["cl_raw"] - lo) / (hi - lo + 1e-6)
+    return df
+
+def ewcl_from_xray(df: pd.DataFrame) -> pd.DataFrame:
+    vals = df["support"].to_numpy(dtype=float)
+    lo, hi = float(vals.min()), float(vals.max())
+    norm = (vals - lo) / (hi - lo + 1e-6)
+    df["inv_conf"] = norm
+    df["cl_norm"] = norm
+    return df
+
 # ─────────────────────────────────────────
 # 3) FastAPI app + routes
 # ─────────────────────────────────────────
@@ -148,8 +176,8 @@ def root():
             "GET /": "this message",
             "GET /health": "status + versions",
             "POST /analyze-pdb": "Physics EWCL (CA-only)",
-            "POST /api/analyze/raw": "Alias to /analyze-pdb",
-            "POST /api/analyze/proxy": "EWCL-Proxy (entropy-weighted pLDDT/B)"
+            "POST /api/analyze/raw": "Physics-only table",
+            "POST /api/analyze/main": "EWCL Proxy (AF entropy-window; X-ray B-factor)"
         }
     }
 
@@ -205,44 +233,63 @@ async def analyze_raw(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"physics(raw) failed: {e}")
 
-@app.post("/api/analyze/proxy")
-async def analyze_proxy(file: UploadFile = File(...)):
+@app.post("/api/analyze/main")
+async def analyze_main(file: UploadFile = File(...)):
+    """
+    EWCL main endpoint:
+      - AlphaFold PDBs → entropy-window EWCL (cl_ewcl)
+      - X-ray PDBs → normalized B-factors (cl_ewcl)
+      - FASTA → sequence skeleton only
+    """
+    filename = (file.filename or "input").lower()
+    contents = await file.read()
+
+    # FASTA: return error (sequence-based EWCL not supported yet)
+    if filename.endswith((".fasta", ".fa")):
+        return JSONResponse(status_code=400, content={"error": "FASTA input not supported yet"})
+
+    # PDB path
+    handle = io.StringIO(contents.decode("utf-8", errors="ignore"))
+    parser = PDBParser(QUIET=True)
     try:
-        pdb_bytes = await file.read()
-        pid = (file.filename or "input").replace(".pdb","")
-        md5 = _md5_bytes(pdb_bytes)
-
-        df = compute_proxy_from_pdb_bytes(pdb_bytes)  # has support/support_norm/uncertainty_norm/cl_proxy/rev_cl_proxy
-        support_type = df["support_type"].iloc[0]
-        is_af = bool(df["is_af"].iloc[0])
-
-        residues: List[Dict] = []
-        for _, r in df.iterrows():
-            residues.append({
-                "chain": str(r["chain"]),
-                "position": int(r["position"]),
-                "aa": str(r["aa"]),
-                "support": float(r["support"]),
-                "support_type": support_type,
-                "support_norm": float(r["support_norm"]),
-                "uncertainty_norm": float(r["uncertainty_norm"]),
-                "inv_conf": float(r["inv_conf"]),
-                "cl": float(r["cl_proxy"]),
-                "rev_cl": float(r["rev_cl_proxy"]),
-            })
-            # Include entropy-aware proxy only when present (AlphaFold branch)
-            if "proxy_entropy" in r and not pd.isna(r["proxy_entropy"]):
-                residues[-1]["proxy_entropy"] = float(r["proxy_entropy"])
-
-        envelope = {
-            "protein_id": pid,
-            "model_type": "proxy",
-            "support_source": support_type,
-            "is_af": is_af,
-            "version": "2025.08",
-            "input_md5": md5,
-            "residues": residues
-        }
-        return JSONResponse(content=envelope)
+        structure = parser.get_structure("model", handle)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"proxy failed: {e}")
+        return JSONResponse(status_code=400, content={"error": f"PDB parse failed: {e}"})
+
+    residues: List[Dict] = []
+    is_alphafold = False
+    for model in structure:
+        for chain in model:
+            for res in chain:
+                if "CA" not in res:
+                    continue
+                atom = res["CA"]
+                support = float(atom.get_bfactor())
+                # Heuristic: AF if 0..100; else X-ray
+                if 0.0 <= support <= 100.0:
+                    support_type = "plddt"
+                    is_alphafold = True
+                else:
+                    support_type = "bfactor"
+                residues.append({
+                    "chain": str(chain.id),
+                    "position": int(res.id[1]),
+                    "aa": str(res.resname),
+                    "support_type": support_type,
+                    "support": support,
+                    "plddt": support if support_type == "plddt" else None,
+                    "bfactor": support if support_type == "bfactor" else None,
+                })
+
+    df = pd.DataFrame(residues)
+    if df.empty:
+        return JSONResponse(status_code=400, content={"error": "No residues parsed"})
+
+    if is_alphafold:
+        df["support_norm"] = np.clip(df["plddt"].astype(float) / 100.0, 0.0, 1.0)
+        df["inv_conf"] = 1.0 - df["support_norm"]
+        df = ewcl_from_alphafold(df, win=15)
+    else:
+        df = ewcl_from_xray(df)
+
+    return JSONResponse(content=df.to_dict(orient="records"))
