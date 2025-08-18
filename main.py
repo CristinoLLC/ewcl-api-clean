@@ -159,9 +159,16 @@ app = FastAPI(
 )
 
 # CORS (add your frontends here)
+origins = [
+    "https://ewclx.com",
+    "https://www.ewclx.com",
+    "https://vercel.link",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
