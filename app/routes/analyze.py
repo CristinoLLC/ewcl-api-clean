@@ -93,12 +93,12 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
             df["sanitized"] = False
 
     elif source_type == "bfactor":
-        # X-ray EWCL: normalized B-factor → inv_conf → entropy → cl_raw/cl_norm/rev_cl
+        # X-ray EWCL: normalized B-factor (no inversion) → entropy → cl_raw/cl_norm/rev_cl
         chain_max = df.groupby("chain")["support"].transform("max").astype(float)
         df["support_norm"] = df["support"].astype(float) / (chain_max + 1e-6)
-        df["inv_conf"] = 1.0 - df["support_norm"]
+        df["inv_conf"] = None
 
-        arr = df["inv_conf"].to_numpy()
+        arr = df["support_norm"].to_numpy()
         ent = np.zeros_like(arr, dtype=float)
         half = w // 2
         for i in range(len(arr)):
@@ -109,7 +109,7 @@ def compute_ewcl(df: pd.DataFrame, source_type: str, w: int = 7, alpha: float = 
             ent[i] = shannon_entropy(hist, base=2)
         df["entropy"] = ent
 
-        df["cl_raw"] = alpha * df["inv_conf"] + beta * df["entropy"]
+        df["cl_raw"] = alpha * df["support_norm"] + beta * df["entropy"]
         df["cl_norm"] = df.groupby("chain")["cl_raw"].transform(lambda x: (x - x.min()) / (x.max() - x.min() + 1e-6))
         df["rev_cl"] = 1.0 - df["cl_norm"]
         if "sanitized" not in df.columns:
