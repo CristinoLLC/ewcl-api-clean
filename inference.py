@@ -1,12 +1,28 @@
+import os
 import joblib
 import numpy as np
 import pandas as pd
 
-# Load model at startup
-MODEL_PATH = "models/ewclv5_full.pkl"
-model_bundle = joblib.load(MODEL_PATH)
-models = model_bundle["models"]
-meta = model_bundle["meta"]
+# Lazy model holder
+MODEL_PATH = os.environ.get("EWCLV5_MODEL_PATH", "models/ewclv5_full.pkl")
+_MODEL_BUNDLE = None
+_MODELS = None
+_META = None
+
+
+def _load_model_once():
+    global _MODEL_BUNDLE, _MODELS, _META
+    if _MODEL_BUNDLE is not None:
+        return _MODEL_BUNDLE, _MODELS, _META
+    if not os.path.exists(MODEL_PATH):
+        raise FileNotFoundError(
+            f"EWCL V5 model not found at '{MODEL_PATH}'. Set EWCLV5_MODEL_PATH or deploy models/ewclv5_full.pkl"
+        )
+    bundle = joblib.load(MODEL_PATH)
+    _MODEL_BUNDLE = bundle
+    _MODELS = bundle["models"]
+    _META = bundle["meta"]
+    return _MODEL_BUNDLE, _MODELS, _META
 
 
 def predict_protein(df: pd.DataFrame, protein_id: str, model_type: str = "AF2") -> dict:
@@ -14,6 +30,7 @@ def predict_protein(df: pd.DataFrame, protein_id: str, model_type: str = "AF2") 
     Run inference on a protein dataframe.
     df must contain features from preprocessing (plddt, bfactor, hydropathy, etc.)
     """
+    bundle, models, meta = _load_model_once()
     X_cols = meta.get("X_cols", [])
     if not X_cols:
         raise ValueError("Model bundle missing 'X_cols' metadata")

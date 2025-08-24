@@ -244,7 +244,7 @@ from app.routes.analyze import router as analyze_router
 app.include_router(analyze_router)
 
 # --- EWCL V5 Flip-aware ML Endpoint (CSV features) ---
-from inference import predict_protein
+from inference import predict_protein, _load_model_once
 import pandas as pd
 
 @app.post("/analyze-ewcl-flip/")
@@ -255,8 +255,16 @@ async def analyze_ewcl_flip(file: UploadFile = File(...)):
     Output: JSON with protein-level + residue-level predictions
     """
     try:
+        # check model availability
+        try:
+            _load_model_once()
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
         df = pd.read_csv(file.file)
         protein_id = str(df.get("uniprot", [file.filename or "protein"]) [0])
         return predict_protein(df, protein_id)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"EWCL V5 analysis failed: {e}")
