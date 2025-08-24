@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import io, hashlib, numpy as np, pandas as pd
@@ -6,6 +7,11 @@ from typing import List, Dict
 from Bio.PDB import PDBParser
 from Bio import SeqIO
 from scipy.stats import entropy as shannon_entropy
+from ccl_inference import (
+    predict_protein as predict_ccl,
+    model_info as ccl_model_info,
+    _load_ccl_once,
+)
 
 # ─────────────────────────────────────────
 # 1) Physics extractor (CA-only)
@@ -196,7 +202,7 @@ def health():
         "python": sys.version,
         "platform": platform.platform(),
         "version": "2025.08",
-        "models": {"physics": True, "proxy": True, "ml": False}
+        "models": {"physics": True, "proxy": True, "ml": False, "ccl_loaded": ccl_model_info().get("loaded", False)}
     }
 
 @app.post("/analyze-pdb")
@@ -268,3 +274,34 @@ async def analyze_ewcl_flip(file: UploadFile = File(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"EWCL V5 analysis failed: {e}")
+
+# --- CCL Sequencer endpoints ---
+class SeqRequest(BaseModel):
+    sequence: str
+    uniprot_id: str | None = None
+
+@app.post("/analyze-CCL")
+async def analyze_seq(req: SeqRequest):
+    seq = req.sequence.strip().upper().replace("\n", "")
+    if not seq or any(ch not in "ACDEFGHIKLMNPQRSTVWYBXZOUJ" for ch in seq):
+        raise HTTPException(status_code=400, detail="Invalid sequence")
+    try:
+        _load_ccl_once()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    uniprot = req.uniprot_id or "QUERY"
+    return predict_ccl(seq, uniprot)
+
+@app.post("/analyze-CCL/fasta")
+async def analyze_fasta(file: UploadFile = File(...)):
+    try:
+        data = await file.read()
+        record = next(SeqIO.parse(io.StringIO(data.decode()), "fasta"))
+        seq = str(record.seq)
+        uniprot = record.id.split()[0]
+        _load_ccl_once()
+        return predict_ccl(seq, uniprot)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read FASTA: {e}")
