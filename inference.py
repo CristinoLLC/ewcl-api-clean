@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 # Lazy model holder
-MODEL_PATH = os.environ.get("EWCLV5_MODEL_PATH", "models/ewclv5_full.pkl")
+MODEL_PATH = os.environ.get("EWCLV5_MODEL_PATH", os.path.join("models", "ewclv5_full.pkl"))
 _MODEL_BUNDLE = None
 _MODELS = None
 _META = None
@@ -18,6 +18,7 @@ def _load_model_once():
         raise FileNotFoundError(
             f"EWCL V5 model not found at '{MODEL_PATH}'. Set EWCLV5_MODEL_PATH or deploy models/ewclv5_full.pkl"
         )
+    print(f"Loading EWCL V5 model from {MODEL_PATH} ...")
     bundle = joblib.load(MODEL_PATH)
     _MODEL_BUNDLE = bundle
     _MODELS = bundle["models"]

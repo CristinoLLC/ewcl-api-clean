@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 # ---------- paths (lazy load to avoid boot crashes) ----------
-CCL_MODEL_PATH = os.getenv("CCL_MODEL_PATH", "models/ccl_v3_seqflip.pkl")
+CCL_MODEL_PATH = os.getenv("CCL_MODEL_PATH", os.path.join("models", "ccl_v3_seqflip.pkl"))
 _BUNDLE = None
 _MODELS = None
 _META = None
@@ -19,6 +19,7 @@ def _load_ccl_once():
         raise FileNotFoundError(
             f"CCL model not found at '{CCL_MODEL_PATH}'. Set CCL_MODEL_PATH or deploy models/ccl_v3_seqflip.pkl"
         )
+    print(f"Loading CCL model from {CCL_MODEL_PATH} ...")
     bundle = joblib.load(CCL_MODEL_PATH)
     _BUNDLE = bundle
     _MODELS = bundle["models"]
