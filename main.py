@@ -153,9 +153,9 @@ def ewcl_from_xray(df: pd.DataFrame) -> pd.DataFrame:
 # 3) FastAPI app + routes
 # ─────────────────────────────────────────
 app = FastAPI(
-    title="EWCL API (Physics + Proxy)",
+    title="EWCL V5 Flip-Aware Backend",
     version="2025.08",
-    description="Physics-based EWCL and EWCL-Proxy endpoints."
+    description="Physics-based EWCL + EWCL V5 (Flip-aware) endpoints."
 )
 
 # CORS (add your frontends here)
@@ -242,3 +242,21 @@ async def analyze_raw(file: UploadFile = File(...)):
 
 from app.routes.analyze import router as analyze_router
 app.include_router(analyze_router)
+
+# --- EWCL V5 Flip-aware ML Endpoint (CSV features) ---
+from inference import predict_protein
+import pandas as pd
+
+@app.post("/analyze-ewcl-flip/")
+async def analyze_ewcl_flip(file: UploadFile = File(...)):
+    """
+    Analyze protein features with EWCL V5 (Flip-aware Hybrid ML model).
+    Input: CSV with precomputed features (columns must match model's X_cols)
+    Output: JSON with protein-level + residue-level predictions
+    """
+    try:
+        df = pd.read_csv(file.file)
+        protein_id = str(df.get("uniprot", [file.filename or "protein"]) [0])
+        return predict_protein(df, protein_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"EWCL V5 analysis failed: {e}")
