@@ -109,6 +109,4 @@ dmypy.json
 # Custom
 temp.pdb
 jsons_rev/
-*.pkl
-models/*.pkl
-!models/ewclv5_full.pkl
+# Allow tracked .pkl via Git LFS (see .gitattributes)
