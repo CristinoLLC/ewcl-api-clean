@@ -111,3 +111,4 @@ temp.pdb
 jsons_rev/
 *.pkl
 models/*.pkl
+!models/ewclv5_full.pkl
