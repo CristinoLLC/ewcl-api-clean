@@ -197,12 +197,23 @@ def root():
 @app.get("/health")
 def health():
     import sys, platform
+    # compute loaded flags without throwing
+    try:
+        _load_model_once()
+        ewclv5_loaded = True
+    except Exception:
+        ewclv5_loaded = False
+    try:
+        _load_ccl_once()
+        ccl_loaded = True
+    except Exception:
+        ccl_loaded = False
     return {
         "status": "ok",
         "python": sys.version,
         "platform": platform.platform(),
         "version": "2025.08",
-        "models": {"physics": True, "proxy": True, "ml": False, "ccl_loaded": ccl_model_info().get("loaded", False)}
+        "models": {"physics": True, "proxy": True, "ewclv5_loaded": ewclv5_loaded, "ccl_loaded": ccl_loaded}
     }
 
 @app.post("/analyze-pdb")
@@ -274,6 +285,24 @@ async def analyze_ewcl_flip(file: UploadFile = File(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"EWCL V5 analysis failed: {e}")
+
+# --- Load models on startup (no lazy) ---
+@app.on_event("startup")
+async def _startup_load_models():
+    try:
+        _load_model_once()
+        print("[startup] EWCL V5 model loaded")
+    except FileNotFoundError as e:
+        print(f"[startup] EWCL V5 model missing: {e}")
+    except Exception as e:
+        print(f"[startup] EWCL V5 model load error: {e}")
+    try:
+        _load_ccl_once()
+        print("[startup] CCL model loaded")
+    except FileNotFoundError as e:
+        print(f"[startup] CCL model missing: {e}")
+    except Exception as e:
+        print(f"[startup] CCL model load error: {e}")
 
 # --- CCL Sequencer endpoints ---
 class SeqRequest(BaseModel):
