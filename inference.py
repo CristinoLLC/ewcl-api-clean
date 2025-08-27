@@ -21,8 +21,27 @@ def _load_model_once():
     print(f"Loading EWCL V5 model from {MODEL_PATH} ...")
     bundle = joblib.load(MODEL_PATH)
     _MODEL_BUNDLE = bundle
-    _MODELS = bundle["models"]
-    _META = bundle["meta"]
+    # Support multiple serialization schemas: dict bundle, list of estimators, or single estimator
+    if isinstance(bundle, dict):
+        models = bundle.get("models")
+        if models is None:
+            # some bundles save a single estimator under 'model'
+            single = bundle.get("model")
+            models = [single] if single is not None else []
+        meta = bundle.get("meta", {})
+        # allow features under different keys
+        if "X_cols" not in meta:
+            feats = bundle.get("features") or getattr(bundle.get("model", None), "feature_names_in_", [])
+            meta = {**meta, "X_cols": list(feats) if feats is not None else []}
+        _MODELS = models
+        _META = meta
+    elif isinstance(bundle, (list, tuple)):
+        _MODELS = list(bundle)
+        _META = {"X_cols": list(getattr(bundle[0], "feature_names_in_", [])) if bundle else []}
+    else:
+        # single estimator (e.g., LGBMClassifier)
+        _MODELS = [bundle]
+        _META = {"X_cols": list(getattr(bundle, "feature_names_in_", []))}
     return _MODEL_BUNDLE, _MODELS, _META
 
 
@@ -39,7 +58,8 @@ def predict_protein(df: pd.DataFrame, protein_id: str, model_type: str = "AF2") 
     X = df[X_cols].astype(float)
     preds = np.zeros(len(df), dtype=float)
     for m in models:
-        preds += m["cal"].predict_proba(X)[:, 1]
+        est = m["cal"] if isinstance(m, dict) and "cal" in m else m
+        preds += est.predict_proba(X)[:, 1]
     preds /= max(1, len(models))
 
     result = {
