@@ -1,17 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter
-from pydantic import BaseModel
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import io, hashlib, numpy as np, pandas as pd
-from typing import List, Dict
 from Bio.PDB import PDBParser
-from Bio import SeqIO
 from scipy.stats import entropy as shannon_entropy
-from ccl_inference import (
-    predict_protein as predict_ccl,
-    model_info as ccl_model_info,
-    _load_ccl_once,
-)
 
 # ─────────────────────────────────────────
 # 1) Physics extractor (CA-only)
@@ -128,32 +120,7 @@ def compute_proxy_from_pdb_bytes(pdb_bytes: bytes,
     df["rev_cl_proxy"] = 1.0 - df["cl_proxy"]
     return df
 
-# --- New EWCL helpers for /api/analyze/main ---
-def shannon_entropy(window: np.ndarray) -> float:
-    hist, _ = np.histogram(window, bins=10, range=(0, 1), density=True)
-    hist = hist[hist > 0]
-    return float(-(hist * np.log(hist)).sum()) if len(hist) else 0.0
-
-def ewcl_from_alphafold(df: pd.DataFrame, win: int = 15) -> pd.DataFrame:
-    vals = df["inv_conf"].to_numpy(dtype=float)
-    ent = np.zeros_like(vals, dtype=float)
-    half = win // 2
-    for i in range(len(vals)):
-        lo, hi = max(0, i - half), min(len(vals), i + half + 1)
-        ent[i] = shannon_entropy(vals[lo:hi])
-    df["entropy"] = ent
-    df["cl_raw"] = df["inv_conf"] * df["entropy"]
-    lo, hi = float(df["cl_raw"].min()), float(df["cl_raw"].max())
-    df["cl_norm"] = (df["cl_raw"] - lo) / (hi - lo + 1e-6)
-    return df
-
-def ewcl_from_xray(df: pd.DataFrame) -> pd.DataFrame:
-    vals = df["support"].to_numpy(dtype=float)
-    lo, hi = float(vals.min()), float(vals.max())
-    norm = (vals - lo) / (hi - lo + 1e-6)
-    df["inv_conf"] = norm
-    df["cl_norm"] = norm
-    return df
+# (Removed unused EWCL helpers to keep only physics + proxy)
 
 # ─────────────────────────────────────────
 # 3) FastAPI app + routes
@@ -197,23 +164,12 @@ def root():
 @app.get("/health")
 def health():
     import sys, platform
-    # compute loaded flags without throwing
-    try:
-        _load_model_once()
-        ewclv5_loaded = True
-    except Exception:
-        ewclv5_loaded = False
-    try:
-        _load_ccl_once()
-        ccl_loaded = True
-    except Exception:
-        ccl_loaded = False
     return {
         "status": "ok",
         "python": sys.version,
         "platform": platform.platform(),
         "version": "2025.08",
-        "models": {"physics": True, "proxy": True, "ewclv5_loaded": ewclv5_loaded, "ccl_loaded": ccl_loaded}
+        "models": {"physics": True, "proxy": True}
     }
 
 @app.post("/analyze-pdb")
@@ -260,77 +216,3 @@ async def analyze_raw(file: UploadFile = File(...)):
 from app.routes.analyze import router as analyze_router
 app.include_router(analyze_router)
 
-# --- EWCL V5 Flip-aware ML Endpoint (CSV features) ---
-from inference import predict_protein, _load_model_once
-import pandas as pd
-
-@app.post("/analyze-ewcl-flip/")
-async def analyze_ewcl_flip(file: UploadFile = File(...)):
-    """
-    Analyze protein features with EWCL V5 (Flip-aware Hybrid ML model).
-    Input: CSV with precomputed features (columns must match model's X_cols)
-    Output: JSON with protein-level + residue-level predictions
-    """
-    try:
-        # check model availability
-        try:
-            _load_model_once()
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=503, detail=str(e))
-
-        df = pd.read_csv(file.file)
-        protein_id = str(df.get("uniprot", [file.filename or "protein"]) [0])
-        return predict_protein(df, protein_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"EWCL V5 analysis failed: {e}")
-
-# --- Load models on startup (no lazy) ---
-@app.on_event("startup")
-async def _startup_load_models():
-    try:
-        _load_model_once()
-        print("[startup] EWCL V5 model loaded")
-    except FileNotFoundError as e:
-        print(f"[startup] EWCL V5 model missing: {e}")
-    except Exception as e:
-        print(f"[startup] EWCL V5 model load error: {e}")
-    try:
-        _load_ccl_once()
-        print("[startup] CCL model loaded")
-    except FileNotFoundError as e:
-        print(f"[startup] CCL model missing: {e}")
-    except Exception as e:
-        print(f"[startup] CCL model load error: {e}")
-
-# --- CCL Sequencer endpoints ---
-class SeqRequest(BaseModel):
-    sequence: str
-    uniprot_id: str | None = None
-
-@app.post("/analyze-CCL")
-async def analyze_seq(req: SeqRequest):
-    seq = req.sequence.strip().upper().replace("\n", "")
-    if not seq or any(ch not in "ACDEFGHIKLMNPQRSTVWYBXZOUJ" for ch in seq):
-        raise HTTPException(status_code=400, detail="Invalid sequence")
-    try:
-        _load_ccl_once()
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    uniprot = req.uniprot_id or "QUERY"
-    return predict_ccl(seq, uniprot)
-
-@app.post("/analyze-CCL/fasta")
-async def analyze_fasta(file: UploadFile = File(...)):
-    try:
-        data = await file.read()
-        record = next(SeqIO.parse(io.StringIO(data.decode()), "fasta"))
-        seq = str(record.seq)
-        uniprot = record.id.split()[0]
-        _load_ccl_once()
-        return predict_ccl(seq, uniprot)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read FASTA: {e}")
