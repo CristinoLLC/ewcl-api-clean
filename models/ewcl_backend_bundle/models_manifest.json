@@ -1,0 +1,88 @@
+{
+  "created_at": "2025-08-31T16:37:03Z",
+  "python_version": "3.11.8",
+  "platform": "macOS-15.3.1-arm64-arm-64bit",
+  "package_versions": {
+    "numpy": "2.3.2",
+    "pandas": "2.3.2",
+    "scikit-learn": "1.7.1",
+    "lightgbm": "4.6.0",
+    "joblib": "1.4.2",
+    "biopython": "1.85",
+    "tqdm": "4.67.1",
+    "pyarrow": "20.0.0",
+    "scipy": "1.15.2",
+    "fastapi": "0.115.0",
+    "uvicorn": "0.30.6",
+    "pydantic": "2.8.2"
+  },
+  "models": {
+    "EWCLv1-M": {
+      "file": "models/EWCLv1-M.pkl",
+      "sha256": "4d0cfbeccfdae55c4b57f5fe35943b76ac0502fc4a28e4d113f6c60d905b257f",
+      "model_type": "LightGBM",
+      "model_class": "LGBMClassifier",
+      "description": "EWCL v1 Machine Learning - LightGBM-based disorder predictor",
+      "features": 255,
+      "lightgbm_params": {
+        "best_iteration": 1515,
+        "num_features": 255,
+        "boosting_type": "gbdt",
+        "colsample_bytree": 0.7,
+        "learning_rate": 0.01,
+        "max_depth": 12,
+        "min_child_samples": 50,
+        "min_child_weight": 3,
+        "min_split_gain": 0.05,
+        "num_leaves": 127,
+        "random_state": 42,
+        "reg_alpha": 0.5,
+        "reg_lambda": 2.0,
+        "subsample": 0.85,
+        "scale_pos_weight": 4.57394197158588,
+        "objective": "binary",
+        "num_iterations": 3000
+      },
+      "feature_info": "meta/EWCLv1-M_feature_info.json"
+    },
+    "EWCLv1": {
+      "file": "models/EWCLv1.pkl",
+      "sha256": "08c48a7a4f980acb3f2a2813b2bb2150ecab0dec6b25be16605f1b9e6ec2d348",
+      "model_type": "LightGBM",
+      "model_class": "LGBMClassifier",
+      "description": "EWCL v1 Classic - Original disorder predictor",
+      "features": 249,
+      "lightgbm_params": {
+        "best_iteration": 0,
+        "num_features": 249,
+        "boosting_type": "gbdt",
+        "colsample_bytree": 0.7,
+        "learning_rate": 0.01,
+        "max_depth": 12,
+        "min_child_samples": 50,
+        "min_child_weight": 3,
+        "min_split_gain": 0.05,
+        "num_leaves": 127,
+        "random_state": 42,
+        "reg_alpha": 0.5,
+        "reg_lambda": 2.0,
+        "subsample": 0.85,
+        "objective": "binary",
+        "num_iterations": 5000
+      },
+      "feature_info": "meta/EWCLv1_feature_info.json"
+    }
+  },
+  "feature_extractor": {
+    "file": "meta/ewcl_feature_extractor_v2.py",
+    "sha256": "e395d6aaecb78149a2a2e370581cc49af8163c0e805879994ea16d6cfb2919c9",
+    "description": "Production EWCL feature extractor supporting both models"
+  },
+  "deployment_info": {
+    "api_framework": "FastAPI",
+    "server": "uvicorn",
+    "supported_models": ["EWCLv1-M", "EWCLv1"],
+    "input_format": "protein_sequence",
+    "output_format": "per_residue_disorder_probability"
+  }
+}

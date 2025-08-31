@@ -1,0 +1,21 @@
+# Core pins (match training environment)
+numpy==2.3.2
+pandas==2.3.2
+scikit-learn==1.7.1
+lightgbm==4.6.0
+joblib==1.4.2
+biopython==1.85
+tqdm==4.67.1
+pyarrow==20.0.0
+scipy==1.15.2
+
+# API
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.4.0
+python-multipart==0.0.9
+
+# Nice-to-haves (optional)
+orjson==3.10.7
+loguru==0.7.2

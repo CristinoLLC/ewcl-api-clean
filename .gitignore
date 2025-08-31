@@ -1,3 +1,18 @@
+# OS / IDE
+.DS_Store
+__pycache__/
+.venv/
+
+# Large artifacts
+backend_bundle/**
+models/**/*.pkl
+
+# Python packaging
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+
 __pycache__/
 *.py[cod]
 *$py.class

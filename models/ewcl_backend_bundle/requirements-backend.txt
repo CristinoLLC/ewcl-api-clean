@@ -1,0 +1,23 @@
+# Core ML dependencies (pinned to training environment)
+lightgbm==4.6.0
+scikit-learn==1.7.1
+numpy==2.3.2
+pandas==2.3.2
+joblib==1.4.2
+scipy==1.15.2
+
+# Bioinformatics
+biopython==1.85
+
+# Data handling
+pyarrow==20.0.0
+tqdm==4.67.1
+
+# Web API framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+
+# Optional but recommended
+python-multipart==0.0.9
+typing-extensions>=4.0.0

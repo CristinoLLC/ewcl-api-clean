@@ -1,31 +1,26 @@
-# EWCL Collapse-Likelihood API
+# EWCL Physics + Proxy API
 
-Physics-based + ML refined EWCL with hallucination flags and reverse collapse likelihood analysis.
+Model-free backend focused on physics-based EWCL and a proxy EWCL (entropy-weighted pLDDT/B). No ML models required.
 
 ## Features
 
-- **Physics-only EWCL**: Pure entropy/structural signal analysis
-- **ML-enhanced predictions**: Regressor and refinement models (with fallbacks)
-- **Hallucination detection**: Identifies potentially unreliable predictions
-- **Reverse EWCL**: Entropy-based collapse likelihood inversion for instability analysis
-- **DisProt prediction**: Disorder prediction with physics-based fallback
+- Physics-only EWCL: entropy/structural signal analysis
+- EWCL-Proxy: re-interpretation of pLDDT/B with local entropy
+- Reverse EWCL: instability highlighting via rev_cl = 1 - cl
 
 ## API Endpoints
 
-- `POST /analyze-pdb` - Unified analysis with complete physics features
+- `POST /api/analyze/raw` - Physics-only EWCL (CA-only)
+- `POST /api/analyze/proxy` - EWCL-Proxy (CA-only)
 - `POST /analyze-rev-ewcl` - Reverse EWCL for instability analysis
-- `POST /disprot-predict` - DisProt disorder prediction
-- `POST /api/analyze/raw` - Physics-only EWCL
-- `POST /api/analyze/regressor` - Physics + ML regressor
-- `POST /api/analyze/refined` - Physics + refined model
-- `POST /api/analyze/hallucination` - Physics + hallucination detection
+- `POST /analyze-pdb` - Unified physics endpoint (back-compat)
 
 ## Deployment
 
 ### Local Development
 ```bash
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
 ### Render Deployment
@@ -33,12 +28,4 @@ uvicorn app.main:app --reload --port 8000
 2. Connect to Render
 3. Deploy with `render.yaml` configuration
 
-## Model Files
-
-Place ML model files in the `models/` directory:
-- `ewcl_regressor_model.pkl`
-- `ewcl_residue_local_high_model.pkl`
-- `ewcl_residue_local_high_scaler.pkl`
-- `hallucination_detector.pkl`
-
-The API works with physics-based analysis even if ML models are missing.
+No ML model files required.

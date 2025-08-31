@@ -216,3 +216,11 @@ async def analyze_raw(file: UploadFile = File(...)):
 from app.routes.analyze import router as analyze_router
 app.include_router(analyze_router)
 
+# Mount ML inference router (repo-local bundle)
+try:
+    from backend.api.router import router as ewcl_router
+    app.include_router(ewcl_router)
+except Exception as e:
+    # Keep physics/proxy working even if bundle missing
+    print(f"[warn] EWCL router not mounted: {e}")
+
