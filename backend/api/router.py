@@ -16,7 +16,17 @@ MODELS = load_all(BUNDLE)
 if not MODELS:
     raise RuntimeError(f"No EWCL models found in {BUNDLE}")
 
-REQUIRES = {k: v.feature_info.get("all_features", []) for k, v in MODELS.items()}
+def _require_list(mb) -> list[str]:
+    fi = mb.feature_info
+    if isinstance(fi, dict):
+        feats = fi.get("all_features")
+        if isinstance(feats, list):
+            return feats
+    if isinstance(fi, list):
+        return fi
+    return []
+
+REQUIRES = {k: _require_list(v) for k, v in MODELS.items()}
 
 
 class PredictEWCLv1M(BaseModel):
@@ -25,6 +35,14 @@ class PredictEWCLv1M(BaseModel):
 
 
 class PredictEWCLv1(BaseModel):
+    features: Dict[str, Any]
+
+
+class PredictEWCLv1C(BaseModel):
+    features: Dict[str, Any]
+
+
+class PredictEWCLv1P3(BaseModel):
     features: Dict[str, Any]
 
 
@@ -58,6 +76,30 @@ def schema_ewclv1():
     }
 
 
+@router.get("/predict/ewclv1p3/schema")
+def schema_ewclv1p3():
+    if "ewclv1p3" not in MODELS:
+        raise HTTPException(404, "ewclv1p3 not loaded")
+    fi = MODELS["ewclv1p3"].feature_info
+    return {
+        "model": "ewclv1p3",
+        "required_features": fi.get("all_features", []),
+        "notes": "Main PDB model; provide named features matching training."
+    }
+
+
+@router.get("/predict/ewclv1c/schema")
+def schema_ewclv1c():
+    if "ewclv1c" not in MODELS:
+        raise HTTPException(404, "ewclv1c not loaded")
+    fi = MODELS["ewclv1c"].feature_info
+    return {
+        "model": "ewclv1c",
+        "required_features": fi.get("all_features", []),
+        "notes": "ClinVar gate model (no PSSM defaults)."
+    }
+
+
 @router.post("/predict/ewclv1m")
 def predict_ewclv1m(req: PredictEWCLv1M):
     if "ewclv1m" not in MODELS:
@@ -82,5 +124,31 @@ def predict_ewclv1(req: PredictEWCLv1):
     except Exception as e:
         raise HTTPException(422, f"Feature mismatch: {e}")
     return {"model": "ewclv1", "prob": prob}
+
+
+@router.post("/predict/ewclv1c")
+def predict_ewclv1c(req: PredictEWCLv1C):
+    if "ewclv1c" not in MODELS:
+        raise HTTPException(404, "ewclv1c not loaded")
+    # ClinVar gate may have its own feature set; accept as-is and rely on loader ordering if present
+    X = prepare_features_ewclv1(req.model_dump(), MODELS["ewclv1c"].feature_info.get("all_features", []))
+    try:
+        prob = float(MODELS["ewclv1c"].predict_proba(X).iloc[0])
+    except Exception as e:
+        raise HTTPException(422, f"Feature mismatch: {e}")
+    return {"model": "ewclv1c", "prob": prob}
+
+
+@router.post("/predict/ewclv1p3")
+def predict_ewclv1p3(req: PredictEWCLv1P3):
+    if "ewclv1p3" not in MODELS:
+        raise HTTPException(404, "ewclv1p3 not loaded")
+    feats_required = REQUIRES.get("ewclv1p3", MODELS["ewclv1p3"].feature_info.get("all_features", []))
+    X = prepare_features_ewclv1(req.model_dump(), feats_required)
+    try:
+        prob = float(MODELS["ewclv1p3"].predict_proba(X).iloc[0])
+    except Exception as e:
+        raise HTTPException(422, f"Feature mismatch: {e}")
+    return {"model": "ewclv1p3", "prob": prob}
 
 

@@ -1,7 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import io, hashlib, numpy as np, pandas as pd
+import io, hashlib, numpy as np, pandas as pd, os, sys
+from pathlib import Path as _Path
+
+# Ensure project root is importable for backend.*
+_ROOT = str(_Path(__file__).resolve().parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 from Bio.PDB import PDBParser
 from scipy.stats import entropy as shannon_entropy
 
@@ -131,13 +137,20 @@ app = FastAPI(
     description="Physics-based EWCL + EWCL V5 (Flip-aware) endpoints."
 )
 
-# CORS (add your frontends here)
-origins = [
-    "https://ewclx.com",
-    "https://www.ewclx.com",
-    "https://vercel.link",
-    "http://localhost:3000",
-]
+# CORS (env override: ALLOWED_ORIGINS="*" or comma-separated list)
+origins_env = os.environ.get("ALLOWED_ORIGINS")
+if origins_env:
+    if origins_env.strip() == "*":
+        origins = ["*"]
+    else:
+        origins = [o.strip() for o in origins_env.split(",") if o.strip()]
+else:
+    origins = [
+        "https://ewclx.com",
+        "https://www.ewclx.com",
+        "https://vercel.link",
+        "http://localhost:3000",
+    ]
 
 app.add_middleware(
     CORSMiddleware,
@@ -146,6 +159,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Ops: API key + body size guard ---
+import os
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+API_KEY = os.environ.get("API_KEY")
+MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "1048576"))
+
+class SecurityMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > MAX_BODY_BYTES:
+            return JSONResponse({"error": "payload too large"}, status_code=413)
+        if API_KEY and request.url.path not in ("/healthz", "/readyz", "/", "/health"):
+            key = request.headers.get("x-api-key")
+            if key != API_KEY:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+app.add_middleware(SecurityMiddleware)
 
 @app.get("/")
 def root():
@@ -171,6 +206,14 @@ def health():
         "version": "2025.08",
         "models": {"physics": True, "proxy": True}
     }
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+@app.get("/readyz")
+def readyz():
+    return {"ok": True}
 
 @app.post("/analyze-pdb")
 async def analyze_pdb(file: UploadFile = File(...)):
@@ -222,5 +265,31 @@ try:
     app.include_router(ewcl_router)
 except Exception as e:
     # Keep physics/proxy working even if bundle missing
+    import traceback
     print(f"[warn] EWCL router not mounted: {e}")
+    traceback.print_exc()
+
+# Mount ClinVar v7.3 router (repo-local bundle)
+try:
+    from backend.api.routers.clinvar_v73 import router as clinvar_router
+    app.include_router(clinvar_router)
+except Exception as e:
+    import traceback
+    print(f"[warn] ClinVar router not mounted: {e}")
+    traceback.print_exc()
+
+# Mount FASTA analysis routers (ewclv1, ewclv1m)
+try:
+    from backend.api.routers import ewclv1 as ewclv1_fasta
+    from backend.api.routers import ewclv1m as ewclv1m_fasta
+    from backend.api.routers import ewclv1p3 as ewclv1p3_pdb
+    from backend.api.routers import clinvar_analyze
+    app.include_router(ewclv1_fasta.router)
+    app.include_router(ewclv1m_fasta.router)
+    app.include_router(ewclv1p3_pdb.router)
+    app.include_router(clinvar_analyze.router)
+except Exception as e:
+    import traceback
+    print(f"[warn] FASTA routers not mounted: {e}")
+    traceback.print_exc()
 
