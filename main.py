@@ -167,7 +167,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 API_KEY = os.environ.get("API_KEY")
-MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "1048576"))
+MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "104857600"))  # 100 MB for large proteins
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):

@@ -1,5 +1,5 @@
 # Fly.io configuration for EWCL API
-app = "ewcl-api"
+app = "ewcl-api-clean"
 primary_region = "iad"
 
 [build]
@@ -12,7 +12,7 @@ primary_region = "iad"
   
   # API configuration (no API key for public access)
   API_KEY = ""
-  MAX_BODY_BYTES = "10485760"  # 10MB
+  MAX_BODY_BYTES = "104857600"  # 100MB for large proteins
   ALLOWED_ORIGINS = "*"
   
   # Model bundle paths
@@ -32,5 +32,5 @@ primary_region = "iad"
   cpus = 2
   memory_mb = 2048
 
-[deploy]
-  release_command = "echo 'Deploying EWCL API with models...'"
+# [deploy]
+#   release_command = "echo 'Deploying EWCL API with models...'"
