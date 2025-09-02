@@ -58,6 +58,31 @@ def test_cors(request: Request):
         "headers": dict(request.headers)
     }
 
+@app.get("/test-routers")
+def test_routers():
+    """Test if routers are loading correctly."""
+    results = {}
+    
+    try:
+        from backend.api.routers.ewclv1m import router as ewclv1m_router
+        results["ewclv1m"] = "loaded"
+    except Exception as e:
+        results["ewclv1m"] = f"error: {str(e)}"
+    
+    try:
+        from backend.api.routers.ewclv1 import router as ewclv1_router
+        results["ewclv1"] = "loaded"
+    except Exception as e:
+        results["ewclv1"] = f"error: {str(e)}"
+    
+    try:
+        from backend.api.router import router as ewcl_router
+        results["ewcl_main"] = "loaded"
+    except Exception as e:
+        results["ewcl_main"] = f"error: {str(e)}"
+    
+    return {"router_status": results}
+
 # ──────────────────────────────
 # Note: FASTA/PDB analysis endpoints are mounted from backend routers
 # - /ewcl/analyze-fasta/ewclv1 (from ewclv1.py)
