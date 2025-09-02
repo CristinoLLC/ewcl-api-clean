@@ -1,7 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from backend.config import settings
 from backend.models.loader import load_all
@@ -29,6 +29,15 @@ def _require_list(mb) -> list[str]:
 REQUIRES = {k: _require_list(v) for k, v in MODELS.items()}
 
 
+class ResidueSample(BaseModel):
+    residue_index: Optional[int] = None
+    sequence_only: Optional[bool] = False
+    features: Dict[str, Any]
+
+class PredictionRequest(BaseModel):
+    samples: List[ResidueSample]
+
+# Legacy models for backward compatibility
 class PredictEWCLv1M(BaseModel):
     sequence_only: bool = Field(False, description="Force PSSM defaults (if True)")
     features: Dict[str, Any]
@@ -150,5 +159,78 @@ def predict_ewclv1p3(req: PredictEWCLv1P3):
     except Exception as e:
         raise HTTPException(422, f"Feature mismatch: {e}")
     return {"model": "ewclv1p3", "prob": prob}
+
+
+# New endpoints that accept rich format with samples
+@router.post("/predict/ewclv1m/samples")
+def predict_ewclv1m_samples(req: PredictionRequest):
+    if "ewclv1m" not in MODELS:
+        raise HTTPException(404, "ewclv1m not loaded")
+    
+    feats_required = REQUIRES["ewclv1m"]
+    results = []
+    
+    for sample in req.samples:
+        # Extract features and sequence_only flag
+        sample_data = {
+            "features": sample.features,
+            "sequence_only": sample.sequence_only or False
+        }
+        
+        X = prepare_features_ewclv1m(sample_data, feats_required)
+        try:
+            prob = float(MODELS["ewclv1m"].predict_proba(X).iloc[0])
+            results.append({
+                "residue_index": sample.residue_index,
+                "prob": prob
+            })
+        except Exception as e:
+            raise HTTPException(422, f"Feature mismatch for residue {sample.residue_index}: {e}")
+    
+    return {"model": "ewclv1m", "results": results}
+
+
+@router.post("/predict/ewclv1/samples")
+def predict_ewclv1_samples(req: PredictionRequest):
+    if "ewclv1" not in MODELS:
+        raise HTTPException(404, "ewclv1 not loaded")
+    
+    feats_required = REQUIRES["ewclv1"]
+    results = []
+    
+    for sample in req.samples:
+        X = prepare_features_ewclv1({"features": sample.features}, feats_required)
+        try:
+            prob = float(MODELS["ewclv1"].predict_proba(X).iloc[0])
+            results.append({
+                "residue_index": sample.residue_index,
+                "prob": prob
+            })
+        except Exception as e:
+            raise HTTPException(422, f"Feature mismatch for residue {sample.residue_index}: {e}")
+    
+    return {"model": "ewclv1", "results": results}
+
+
+@router.post("/predict/ewclv1p3/samples")
+def predict_ewclv1p3_samples(req: PredictionRequest):
+    if "ewclv1p3" not in MODELS:
+        raise HTTPException(404, "ewclv1p3 not loaded")
+    
+    feats_required = REQUIRES.get("ewclv1p3", MODELS["ewclv1p3"].feature_info.get("all_features", []))
+    results = []
+    
+    for sample in req.samples:
+        X = prepare_features_ewclv1({"features": sample.features}, feats_required)
+        try:
+            prob = float(MODELS["ewclv1p3"].predict_proba(X).iloc[0])
+            results.append({
+                "residue_index": sample.residue_index,
+                "prob": prob
+            })
+        except Exception as e:
+            raise HTTPException(422, f"Feature mismatch for residue {sample.residue_index}: {e}")
+    
+    return {"model": "ewclv1p3", "results": results}
 
 
