@@ -35,5 +35,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Use fixed port for Railway compatibility - main.py handles PORT env var internally
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Use Python to start the app - this way main.py handles PORT env var properly
+CMD ["python", "main.py"]
