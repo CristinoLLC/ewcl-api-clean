@@ -45,6 +45,62 @@
       "type": "shell",
       "command": "curl -s https://ewcl-api-clean.fly.dev/healthz && echo && curl -s https://ewcl-api-clean.fly.dev/models | jq",
       "problemMatcher": []
+    },
+    {
+      "label": "Railway: Install CLI",
+      "type": "shell",
+      "command": "npm install -g @railway/cli",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Railway: Login",
+      "type": "shell",
+      "command": "railway login",
+      "problemMatcher": []
+    },
+    {
+      "label": "Railway: Link Project",
+      "type": "shell",
+      "command": "railway link",
+      "problemMatcher": []
+    },
+    {
+      "label": "Railway: Deploy",
+      "type": "shell",
+      "command": "railway up",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Railway: Set Environment Variables",
+      "type": "shell",
+      "command": "railway variables set MAX_BODY_BYTES=100000000 ENABLE_RAW_ROUTERS=0 EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl EWCLV1_C_FEATURES_PATH=/app/models/clinvar/EWCLv1-C_features.json",
+      "problemMatcher": []
+    },
+    {
+      "label": "Railway: Open Dashboard",
+      "type": "shell",
+      "command": "railway open",
+      "problemMatcher": []
+    },
+    {
+      "label": "Railway: View Logs",
+      "type": "shell",
+      "command": "railway logs",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Railway Health (replace with your URL)",
+      "type": "shell",
+      "command": "curl -s https://ewcl-api-clean.up.railway.app/healthz && echo && curl -s https://ewcl-api-clean.up.railway.app/models | jq",
+      "problemMatcher": []
+    },
+    {
+      "label": "Compare: Fly vs Railway Performance",
+      "type": "shell",
+      "command": "echo '=== FLY.IO ===' && time curl -s https://ewcl-api-clean.fly.dev/healthz && echo && echo '=== RAILWAY ===' && time curl -s https://ewcl-api-clean.up.railway.app/healthz",
+      "problemMatcher": []
     }
   ]
 }
