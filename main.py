@@ -56,9 +56,9 @@ app.add_middleware(BodyLimit)
 # ── env model paths (visibility + quick sanity in /models) ──────────────────
 MODEL_ENVS = {
     "ewclv1":   os.environ.get("EWCLV1_MODEL_PATH"),
-    "ewclv1-m": os.environ.get("EWCLV1_M_MODEL_PATH"),  # Fixed: underscore instead of hyphen
+    "ewclv1-m": os.environ.get("EWCLV1_M_MODEL_PATH"),
     "ewclv1-p3": os.environ.get("EWCLV1_P3_MODEL_PATH"),
-    "ewclv1-c": os.environ.get("EWCLV1_C_MODEL_PATH"),  # Fixed: underscore instead of hyphen
+    "ewclv1-c": os.environ.get("EWCLV1_C_MODEL_PATH"),
 }
 for k,v in MODEL_ENVS.items():
     if v:
