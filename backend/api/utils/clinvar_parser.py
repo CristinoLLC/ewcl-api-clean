@@ -13,6 +13,28 @@ AA_PROPERTIES: Dict[str, Tuple[float, float]] = {
     'T': (-0.7, 0), 'W': (-0.9, 0), 'Y': (-1.3, 0), 'V': (4.2, 0)
 }
 
+# EWCLv1-C feature order (hardcoded from the training data)
+EWCLV1_C_FEATURES = [
+    "position",
+    "sequence_length", 
+    "position_ratio",
+    "delta_hydropathy",
+    "delta_charge",
+    "delta_entropy_w5",
+    "delta_entropy_w11",
+    "has_embeddings",
+    "delta_helix_prop",
+    "delta_sheet_prop",
+    "delta_entropy_w25",
+    "ewcl_hydropathy",
+    "ewcl_charge_pH7",
+    "ewcl_entropy_w5",
+    "ewcl_entropy_w11",
+    "emb_0", "emb_1", "emb_2", "emb_3", "emb_4", "emb_5", "emb_6", "emb_7",
+    "emb_8", "emb_9", "emb_10", "emb_11", "emb_12", "emb_13", "emb_14", "emb_15",
+    "emb_16", "emb_17", "emb_18", "emb_19", "emb_20", "emb_21", "emb_22", "emb_23",
+    "emb_24", "emb_25", "emb_26", "emb_27", "emb_28", "emb_29", "emb_30", "emb_31"
+]
 
 def parse_fasta(fasta_str: str) -> str:
     lines = fasta_str.strip().splitlines()

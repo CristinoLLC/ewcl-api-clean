@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Docker: Build",
+      "type": "shell",
+      "command": "docker build -t ewcl-api:local .",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Run (local)",
+      "type": "shell",
+      "dependsOn": "Docker: Build",
+      "command": "docker run --rm -p 8080:8080 -e MAX_BODY_BYTES=100000000 -e ENABLE_RAW_ROUTERS=0 -e EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl -e EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl -e EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl -e EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl -v ${workspaceFolder}/models:/app/models:ro ewcl-api:local",
+      "problemMatcher": []
+    },
+    {
+      "label": "Fly: Set Secrets",
+      "type": "shell",
+      "command": "fly secrets set MAX_BODY_BYTES=100000000 ENABLE_RAW_ROUTERS=0 EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl",
+      "problemMatcher": []
+    },
+    {
+      "label": "Fly: Deploy (Dockerfile)",
+      "type": "shell",
+      "dependsOn": "Fly: Set Secrets",
+      "command": "fly deploy",
+      "problemMatcher": []
+    },
+    {
+      "label": "Fly: Scale to 4 regions (ewr,iad,mia,lax)",
+      "type": "shell",
+      "command": "fly scale count 4 --region ewr,iad,mia,lax --yes",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Local Health",
+      "type": "shell",
+      "command": "curl -s http://localhost:8080/healthz && echo && curl -s http://localhost:8080/models | jq",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Production Health",
+      "type": "shell",
+      "command": "curl -s https://ewcl-api-clean.fly.dev/healthz && echo && curl -s https://ewcl-api-clean.fly.dev/models | jq",
+      "problemMatcher": []
+    }
+  ]
+}

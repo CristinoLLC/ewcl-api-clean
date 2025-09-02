@@ -1,0 +1,8 @@
+{
+  "fasta_file": "A0A1W0WK50.fasta",
+  "variant_position": 50,
+  "original_aa": "P",
+  "mutant_aa": "L",
+  "protein_id": "A0A1W0WK50",
+  "description": "Testing sequencer model with Hypsibius exemplaris protein - P50L mutation"
+}

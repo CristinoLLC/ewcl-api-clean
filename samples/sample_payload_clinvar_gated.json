@@ -1,0 +1,19 @@
+{
+  "samples": [
+    {
+      "variant_id": "V:DEMO",
+      "biological_coverage_score": 0.82,
+      "features": {
+        "Column_0": 0.0,
+        "Column_1": 0.0,
+        "Column_2": 0.0,
+        "Column_3": 0.0,
+        "Column_4": 0.0,
+        "Column_5": 0.0,
+        "Column_6": 0.0,
+        "Column_7": 0.0,
+        "Column_8": 0.0
+      }
+    }
+  ]
+}

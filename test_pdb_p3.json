@@ -1,0 +1,8 @@
+{
+  "pdb_file": "AF-O15552-F1-model_v4.pdb",
+  "variant_position": 100,
+  "original_aa": "A",
+  "mutant_aa": "V",
+  "protein_id": "O15552",
+  "description": "Testing PDB P3 model with AlphaFold structure"
+}

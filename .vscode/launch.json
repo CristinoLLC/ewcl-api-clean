@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI (uvicorn)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "main:app",
+        "--host", "0.0.0.0",
+        "--port", "8080",
+        "--reload"
+      ],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "LOGLEVEL": "DEBUG",
+        "ENABLE_RAW_ROUTERS": "1",
+        "EWCLV1_MODEL_PATH": "${workspaceFolder}/models/disorder/ewclv1.pkl",
+        "EWCLV1-M_MODEL_PATH": "${workspaceFolder}/models/disorder/ewclv1-M.pkl",
+        "EWCLV1P3_MODEL_PATH": "${workspaceFolder}/models/pdb/ewclv1p3.pkl",
+        "EWCLV1C_MODEL_PATH": "${workspaceFolder}/models/clinvar/ewclv1c.pkl",
+        "EWCLV1C_DASH_MODEL_PATH": "${workspaceFolder}/models/clinvar/ewclv1-C.pkl",
+        "EWCLV1C_DASH_FEATURES_PATH": "${workspaceFolder}/models/clinvar/v7_3_feature_list.json"
+      },
+      "jinja": true,
+      "console": "integratedTerminal"
+    }
+  ]
+}
