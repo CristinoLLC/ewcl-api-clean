@@ -17,15 +17,18 @@ RUN pip install -r requirements.txt
 # copy app
 COPY . .
 
-# Copy models to correct paths for Railway compatibility
-# From your actual models/ directory structure
+# Create target directories explicitly
 RUN mkdir -p /app/models/disorder /app/models/clinvar /app/models/pdb
-COPY models/disorder/*.pkl /app/models/disorder/
-COPY models/clinvar/*.pkl /app/models/clinvar/
-COPY models/clinvar/*.json /app/models/clinvar/
-COPY models/pdb/*.pkl /app/models/pdb/
 
-# Copy backend_bundle models for ClinVar
+# Copy models explicitly (no wildcards) - from your actual repo structure
+COPY models/disorder/ewclv1.pkl /app/models/disorder/ewclv1.pkl
+COPY models/disorder/ewclv1-M.pkl /app/models/disorder/ewclv1-M.pkl
+COPY models/pdb/ewclv1p3.pkl /app/models/pdb/ewclv1p3.pkl
+COPY models/clinvar/ewclv1-C.pkl /app/models/clinvar/ewclv1-C.pkl
+COPY models/clinvar/ewclv1c.pkl /app/models/clinvar/ewclv1c.pkl
+COPY models/clinvar/EWCLv1-C_features.json /app/models/clinvar/EWCLv1-C_features.json
+
+# Copy backend_bundle models for additional ClinVar models if needed
 COPY backend_bundle/models/*.pkl /app/models/clinvar/
 
 # Set default env vars with UNDERSCORES (no hyphens) - can be overridden by platform secrets
