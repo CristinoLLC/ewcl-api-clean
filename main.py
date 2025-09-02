@@ -76,37 +76,37 @@ except Exception as e:
 
 try:
     from backend.api.router import router as ewcl_router
-    app.include_router(ewcl_router, prefix="/ewcl", tags=["ewcl"])
+    app.include_router(ewcl_router, tags=["ewcl"])
 except Exception as e:
     print(f"[warn] EWCL routes not mounted: {e}")
 
 try:
     from backend.api.routers.clinvar_v73 import router as clinvar_router
-    app.include_router(clinvar_router, prefix="/clinvar", tags=["clinvar"])
+    app.include_router(clinvar_router, tags=["clinvar"])
 except Exception as e:
     print(f"[warn] ClinVar routes not mounted: {e}")
 
 try:
     from backend.api.routers.clinvar_analyze import router as clinvar_analyze_router
-    app.include_router(clinvar_analyze_router, prefix="/clinvar", tags=["clinvar-analyze"])
+    app.include_router(clinvar_analyze_router, tags=["clinvar-analyze"])
 except Exception as e:
     print(f"[warn] ClinVar analyze routes not mounted: {e}")
 
 try:
     from backend.api.routers.ewclv1 import router as ewclv1_router
-    app.include_router(ewclv1_router, prefix="/ewcl", tags=["ewclv1-fasta"])
+    app.include_router(ewclv1_router, tags=["ewclv1-fasta"])
 except Exception as e:
     print(f"[warn] EWCLv1 FASTA routes not mounted: {e}")
 
 try:
     from backend.api.routers.ewclv1m import router as ewclv1m_router
-    app.include_router(ewclv1m_router, prefix="/ewcl", tags=["ewclv1m-fasta"])
+    app.include_router(ewclv1m_router, tags=["ewclv1m-fasta"])
 except Exception as e:
     print(f"[warn] EWCLv1-M FASTA routes not mounted: {e}")
 
 try:
     from backend.api.routers.ewclv1p3 import router as ewclv1p3_router
-    app.include_router(ewclv1p3_router, prefix="/ewcl", tags=["ewclv1p3-pdb"])
+    app.include_router(ewclv1p3_router, tags=["ewclv1p3-pdb"])
 except Exception as e:
     print(f"[warn] EWCLv1-P3 PDB routes not mounted: {e}")
 
