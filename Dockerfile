@@ -20,16 +20,19 @@ COPY . .
 # Create target directories explicitly
 RUN mkdir -p /app/models/disorder /app/models/clinvar /app/models/pdb
 
-# Copy models explicitly (no wildcards) - from your actual repo structure
+# Copy models from actual repo structure - disorder models
 COPY models/disorder/ewclv1.pkl /app/models/disorder/ewclv1.pkl
 COPY models/disorder/ewclv1-M.pkl /app/models/disorder/ewclv1-M.pkl
+
+# Copy PDB model
 COPY models/pdb/ewclv1p3.pkl /app/models/pdb/ewclv1p3.pkl
+
+# Copy ClinVar models and features
 COPY models/clinvar/ewclv1-C.pkl /app/models/clinvar/ewclv1-C.pkl
-COPY models/clinvar/ewclv1c.pkl /app/models/clinvar/ewclv1c.pkl
 COPY models/clinvar/EWCLv1-C_features.json /app/models/clinvar/EWCLv1-C_features.json
 
-# Copy backend_bundle models for additional ClinVar models if needed
-COPY backend_bundle/models/*.pkl /app/models/clinvar/
+# Copy additional backend_bundle models if they exist
+COPY backend_bundle/models/EWCLv1C_Gate.pkl /app/models/clinvar/EWCLv1C_Gate.pkl
 
 # Set default env vars with UNDERSCORES (no hyphens) - can be overridden by platform secrets
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
