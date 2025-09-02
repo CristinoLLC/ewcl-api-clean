@@ -29,11 +29,11 @@ ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
     MAX_BODY_BYTES=100000000 \
     PORT=8080
 
-EXPOSE $PORT
+EXPOSE 8080
 
 # Health check (works with both Fly.io and Railway)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:$PORT/healthz || exit 1
+    CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Use PORT env var for both platforms
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]
+# Use fixed port for Railway compatibility - main.py handles PORT env var internally
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

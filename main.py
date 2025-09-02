@@ -213,6 +213,23 @@ def _normalize_residues(obj: Dict[str,Any], fallback_id: str, model_name: str):
     length = obj.get("length") or (residues[-1]["residue_index"] if residues else None)
     return {"id": rid, "model": model_name, "length": length, "residues": residues}
 
+# ── startup: load models via singleton ─────────────────────────────────────
+@app.on_event("startup")
+async def startup_event():
+    """Load all models at startup using singleton pattern."""
+    from backend.models.singleton import ModelManager
+    manager = ModelManager()
+    await manager.initialize()
+    log.info("[startup] All models loaded via singleton pattern")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT","8080")))
+    # Robust PORT handling for Railway/Fly.io compatibility
+    port = os.environ.get("PORT")
+    try:
+        port = int(port) if port and port.isdigit() else 8080
+    except (ValueError, TypeError):
+        port = 8080
+    
+    log.info(f"[startup] Starting server on 0.0.0.0:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
