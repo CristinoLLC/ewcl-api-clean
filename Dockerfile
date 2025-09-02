@@ -28,7 +28,7 @@ COPY models/disorder/ewclv1-M.pkl /app/models/disorder/ewclv1-M.pkl
 COPY models/pdb/ewclv1p3.pkl /app/models/pdb/ewclv1p3.pkl
 
 # Copy ClinVar models and features
-COPY models/clinvar/ewclv1-C.pkl /app/models/clinvar/ewclv1-C.pkl
+COPY models/clinvar/ewclv1c.pkl /app/models/clinvar/ewclv1c.pkl
 COPY models/clinvar/EWCLv1-C_features.json /app/models/clinvar/EWCLv1-C_features.json
 
 # Copy additional backend_bundle models if they exist
@@ -38,7 +38,7 @@ COPY backend_bundle/models/EWCLv1C_Gate.pkl /app/models/clinvar/EWCLv1C_Gate.pkl
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
     EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl \
     EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl \
-    EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl \
+    EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1c.pkl \
     EWCLV1_C_FEATURES_PATH=/app/models/clinvar/EWCLv1-C_features.json \
     MAX_BODY_BYTES=100000000 \
     PORT=8080
