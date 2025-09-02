@@ -32,14 +32,24 @@ def _set_pssm_defaults(df: pd.DataFrame, required: List[str]) -> pd.DataFrame:
 def prepare_features_ewclv1m(payload: Dict[str, Any], required_features: List[str]) -> pd.DataFrame:
     if "features" not in payload:
         raise ValueError("Missing 'features' object")
-    df = pd.DataFrame([payload["features"]])
+    
+    # Start with the provided features
+    features_dict = dict(payload["features"])
+    
+    # Add PSSM defaults if needed
     if bool(payload.get("sequence_only", False)):
-        df = _set_pssm_defaults(df, required_features)
-    else:
-        df = _set_pssm_defaults(df, required_features)
+        need_pssm = [c for c in (AA20 + PSSM_DERIVED) if c in required_features]
+        for c in need_pssm:
+            if c not in features_dict:
+                features_dict[c] = DEFAULTS[c]
+    
+    # Add any missing required features with default 0.0
     for f in required_features:
-        if f not in df.columns:
-            df[f] = 0.0
+        if f not in features_dict:
+            features_dict[f] = 0.0
+    
+    # Create DataFrame in one go to avoid fragmentation
+    df = pd.DataFrame([features_dict])
     df = _ensure_numeric(df)
     return df
 
