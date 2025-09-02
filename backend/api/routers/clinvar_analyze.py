@@ -11,7 +11,7 @@ router = APIRouter(prefix="/clinvar", tags=["clinvar-analyze"])
 
 # Configure bundle directory via env; expect model + feature list inside
 BUNDLE = Path(os.environ.get("EWCLV1C_BUNDLE_DIR", str(Path(__file__).resolve().parents[3] / "backend_bundle")))
-MODEL_PATH = BUNDLE / "models" / "ewclv1c_model.pkl"
+MODEL_PATH = BUNDLE / "models" / "EWCLv1C_Gate.pkl"
 FEATS_PATH = BUNDLE / "meta" / "EWCLv1C_feature_list.json"
 
 MODEL = None

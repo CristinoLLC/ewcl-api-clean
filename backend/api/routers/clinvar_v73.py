@@ -202,10 +202,15 @@ def _predict_scores(df: pd.DataFrame) -> np.ndarray:
             X = pd.DataFrame(SCALER.transform(X), index=X.index, columns=X.columns)
     except Exception:
         pass
-    predictor = PREDICTOR if 'PREDICTOR' in globals() and PREDICTOR is not None else MODEL
+    predictor = PREDICTOR if PREDICTOR is not None else MODEL
     if isinstance(predictor, lgb.Booster):
         return predictor.predict(X)
-    return predictor.predict_proba(X)[:, 1] if hasattr(predictor, "predict_proba") else predictor.predict(X)
+    elif hasattr(predictor, "predict_proba"):
+        return predictor.predict_proba(X)[:, 1]
+    elif hasattr(predictor, "predict"):
+        return predictor.predict(X)
+    else:
+        raise ValueError(f"Model object {type(predictor)} has no prediction method")
 
 
 def _calibrated_confidence(scores: np.ndarray, coverage: np.ndarray) -> np.ndarray:
