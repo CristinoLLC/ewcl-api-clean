@@ -17,8 +17,17 @@ RUN pip install -r requirements.txt
 # copy app
 COPY . .
 
-# Copy models into image (including ClinVar models)
-COPY models /app/models
+# Copy models to correct paths for Railway compatibility
+# From your actual models/ directory structure
+RUN mkdir -p /app/models/disorder /app/models/clinvar /app/models/pdb
+COPY models/disorder/*.pkl /app/models/disorder/
+COPY models/clinvar/*.pkl /app/models/clinvar/
+COPY models/clinvar/*.json /app/models/clinvar/
+COPY models/pdb/*.pkl /app/models/pdb/
+
+# Copy backend_bundle models and meta for feature extraction
+COPY backend_bundle/models/*.pkl /app/models/clinvar/
+COPY backend_bundle/meta /app/meta
 
 # Set default env vars with UNDERSCORES (no hyphens) - can be overridden by platform secrets
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
