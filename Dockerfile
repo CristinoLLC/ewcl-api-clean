@@ -30,6 +30,7 @@ COPY models/pdb/ewclv1p3.pkl /app/models/pdb/ewclv1p3.pkl
 # Copy ClinVar models and features
 COPY models/clinvar/ewclv1-C.pkl /app/models/clinvar/ewclv1-C.pkl
 COPY models/clinvar/EWCLv1-C_features.json /app/models/clinvar/EWCLv1-C_features.json
+COPY models/clinvar/ewclv1c.pkl /app/models/clinvar/ewclv1c.pkl
 
 # Copy additional backend_bundle models if they exist
 COPY backend_bundle/models/EWCLv1C_Gate.pkl /app/models/clinvar/EWCLv1C_Gate.pkl
