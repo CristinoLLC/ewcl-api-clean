@@ -25,9 +25,8 @@ COPY models/clinvar/*.pkl /app/models/clinvar/
 COPY models/clinvar/*.json /app/models/clinvar/
 COPY models/pdb/*.pkl /app/models/pdb/
 
-# Copy backend_bundle models and meta for feature extraction
+# Copy backend_bundle models for ClinVar
 COPY backend_bundle/models/*.pkl /app/models/clinvar/
-COPY backend_bundle/meta /app/meta
 
 # Set default env vars with UNDERSCORES (no hyphens) - can be overridden by platform secrets
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
