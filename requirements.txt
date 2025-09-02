@@ -2,8 +2,8 @@
 fastapi==0.110.0
 uvicorn[standard]==0.23.2
 gunicorn==21.2.0
-pydantic==2.6.1
-pydantic-settings==2.4.0
+pydantic>=2.7.0
+pydantic-settings>=2.4.0
 python-multipart>=0.0.9
 
 # ML and scientific computing (pinned for reproducibility)
