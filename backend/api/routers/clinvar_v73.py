@@ -82,6 +82,7 @@ else:
     SCALER = None
     THRESHOLDS: Dict[str, float] = {}
     if isinstance(MODEL, dict):
+        # Use the main ClinVar model (flip_detector) instead of gate logic
         PREDICTOR = MODEL.get("flip_detector") or MODEL.get("estimator") or MODEL.get("model")
         SCALER = MODEL.get("feature_scaler")
         if isinstance(MODEL.get("thresholds"), dict):
