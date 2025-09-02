@@ -50,3 +50,55 @@ tests/
 # Documentation
 README.md
 *.md
+
+# Ignore everything by default
+*
+
+# Allow specific files and directories
+!/app
+!/backend
+!/backend_bundle
+!/main.py
+!/models
+!/requirements-backend.txt
+!/requirements.txt
+!/utils_support.py
+
+# Allow all files in allowed directories
+!/app/**
+!/backend/**
+!/backend_bundle/**
+!/models/**
+
+# Ignore Python cache and virtual environments
+**/__pycache__/
+*.pyc
+.venv
+#/
+
+# Ignore other artifacts
+.git
+.gitignore
+.dockerignore
+*.log
+.env*
+.ipynb_checkpoints
+ngrok.*
+README.md
+OPS_PUBLIC.md
+RAILWAY_DEPLOYMENT.md
+fly.toml
+render.yaml
+docker-compose.yml
+deploy.sh
+run_gunicorn.sh
+run_local.py
+runtime.txt
+test_api.py
+test_pdb_p3.json
+test_sequencer.json
+1CRN.pdb
+A0A1W0WK50.fasta
+AF-O15552-F1-model_v4.pdb
+frontend/
+samples/

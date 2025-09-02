@@ -60,6 +60,8 @@ MODEL_ENVS = {
     "ewclv1-p3": os.environ.get("EWCLV1_P3_MODEL_PATH"),
     "ewclv1-c": os.environ.get("EWCLV1_C_MODEL_PATH"),
 }
+MODEL_ENVS["ewclv1-c_features"] = os.environ.get("EWCLV1_C_FEATURES_PATH")
+
 for k,v in MODEL_ENVS.items():
     if v:
         log.info(f"[init] {k} model path = {v} (exists={Path(v).exists()})")
