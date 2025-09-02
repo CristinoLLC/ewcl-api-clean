@@ -59,60 +59,11 @@ def test_cors(request: Request):
     }
 
 # ──────────────────────────────
-# FASTA Analysis Endpoints
+# Note: FASTA/PDB analysis endpoints are mounted from backend routers
+# - /ewcl/analyze-fasta/ewclv1 (from ewclv1.py)
+# - /ewcl/analyze-fasta/ewclv1m (from ewclv1m.py)  
+# - /ewcl/analyze-pdb/ewclv1p3 (from ewclv1p3.py)
 # ──────────────────────────────
-@app.post("/ewcl/analyze-fasta/{model}")
-async def analyze_fasta(model: str, file: UploadFile = File(...)):
-    """Analyze FASTA file using specified EWCL model."""
-    try:
-        # Read FASTA content
-        contents = await file.read()
-        record = next(SeqIO.parse(io.StringIO(contents.decode()), "fasta"))
-        seq_id = record.id
-        sequence = str(record.seq)
-
-        # Build payload for internal EWCL model
-        payload = {
-            "samples": [
-                {
-                    "uniprot": seq_id,
-                    "residue_index": i + 1,
-                    "sequence_only": True,
-                    "features": {}  # backend sequencer should fill features
-                }
-                for i in range(len(sequence))
-            ]
-        }
-
-        # Forward internally to the existing predict route
-        from fastapi.testclient import TestClient
-        client = TestClient(app)
-        r = client.post(f"/ewcl/predict/{model}", json=payload)
-        r.raise_for_status()
-        return r.json()
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"FASTA analysis failed: {e}")
-
-@app.post("/ewcl/analyze-pdb/{model}")
-async def analyze_pdb(model: str, file: UploadFile = File(...)):
-    """Analyze PDB file using specified EWCL model."""
-    try:
-        # Read PDB content
-        contents = await file.read()
-        
-        # For now, return a placeholder response
-        # TODO: Implement PDB analysis logic
-        return {
-            "filename": file.filename,
-            "model": model,
-            "analysis_type": "pdb",
-            "message": "PDB analysis not yet implemented",
-            "file_size": len(contents)
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDB analysis failed: {e}")
 
 # ──────────────────────────────
 # Mount routers if present
