@@ -95,13 +95,11 @@ celerybeat-schedule
 *.sage.py
 
 # Environments
-.env
 .venv
-env/
 venv/
+env/
 ENV/
-env.bak/
-venv.bak/
+.env
 
 # Spyder project settings
 .spyderproject
@@ -125,3 +123,13 @@ dmypy.json
 temp.pdb
 jsons_rev/
 # Allow tracked .pkl via Git LFS (see .gitattributes)
+
+# Python cache
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
