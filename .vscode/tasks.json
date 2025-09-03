@@ -12,13 +12,13 @@
       "label": "Docker: Run (local)",
       "type": "shell",
       "dependsOn": "Docker: Build",
-      "command": "docker run --rm -p 8080:8080 -e MAX_BODY_BYTES=100000000 -e ENABLE_RAW_ROUTERS=0 -e ENABLE_EWCLV1_C_ADV=0 -e EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl -e EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl -e EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl -e EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-c.pkl -e EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json -v ${workspaceFolder}/models:/app/models:ro ewcl-api:local",
+      "command": "docker run --rm -p 8080:8080 -e MAX_BODY_BYTES=100000000 -e ENABLE_RAW_ROUTERS=0 -e ENABLE_EWCLV1_C_ADV=0 -e EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl -e EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl -e EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl -e EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl -e EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json -v ${workspaceFolder}/models:/app/models:ro ewcl-api:local",
       "problemMatcher": []
     },
     {
       "label": "Fly: Set Secrets",
       "type": "shell",
-      "command": "fly secrets set MAX_BODY_BYTES=100000000 ENABLE_RAW_ROUTERS=0 ENABLE_EWCLV1_C_ADV=0 EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-c.pkl EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json",
+      "command": "fly secrets set MAX_BODY_BYTES=100000000 ENABLE_RAW_ROUTERS=0 ENABLE_EWCLV1_C_ADV=0 EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json",
       "problemMatcher": []
     },
     {
@@ -75,7 +75,7 @@
     {
       "label": "Railway: Set Environment Variables",
       "type": "shell",
-      "command": "railway variables set MAX_BODY_BYTES=100000000 ENABLE_RAW_ROUTERS=0 ENABLE_EWCLV1_C_ADV=0 EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-c.pkl EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json",
+      "command": "railway variables set MAX_BODY_BYTES=100000000 ENABLE_RAW_ROUTERS=0 ENABLE_EWCLV1_C_ADV=0 EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json",
       "problemMatcher": []
     },
     {
