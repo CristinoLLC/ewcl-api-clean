@@ -8,7 +8,7 @@ import io
 router = APIRouter(prefix="/clinvar/ewclv1-C", tags=["clinvar-ewclv1-C"])
 
 # Model configuration (standardize env var names + correct default filenames)
-MODEL_PATH = os.environ.get("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-c.pkl")
+MODEL_PATH = os.environ.get("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")
 FEATURES_PATH = os.environ.get("EWCLV1_C_FEATURES_PATH", "/app/models/clinvar/ewclv1-c_features.json")
 
 # Load model and features

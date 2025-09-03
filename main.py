@@ -27,7 +27,7 @@ MODELS_TO_FETCH = [
     ("EWCLV1_MODEL_URL", "/app/models/disorder/ewclv1.pkl"),
     ("EWCLV1_M_MODEL_URL", "/app/models/disorder/ewclv1-M.pkl"),
     ("EWCLV1_P3_MODEL_URL", "/app/models/pdb/ewclv1p3.pkl"),
-    ("EWCLV1_C_MODEL_URL", "/app/models/clinvar/ewclv1-c.pkl"),
+    ("EWCLV1_C_MODEL_URL", "/app/models/clinvar/ewclv1-C.pkl"),
     # Removed EWCLV1_C_FEATS_URL - not needed since router uses hardcoded features
 ]
 
@@ -107,6 +107,12 @@ MODEL_ENVS = {
 }
 # keep features path separately (not probed as a model)
 EWCLV1_C_FEATURES_PATH = os.environ.get("EWCLV1_C_FEATURES_PATH")
+
+# Set default model paths with correct uppercase C filename
+os.environ.setdefault("EWCLV1_MODEL_PATH", "/app/models/disorder/ewclv1.pkl")
+os.environ.setdefault("EWCLV1_M_MODEL_PATH", "/app/models/disorder/ewclv1-M.pkl")
+os.environ.setdefault("EWCLV1_P3_MODEL_PATH", "/app/models/pdb/ewclv1p3.pkl")
+os.environ.setdefault("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")  # Uppercase C
 
 for k, v in MODEL_ENVS.items():
     if v:
