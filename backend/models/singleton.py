@@ -112,3 +112,20 @@ class ModelManager:
     
     def get_model(self, name: str):
         return self.singleton.get_model(name)
+    
+    def get_feature_order(self, name: str):
+        """Get feature order for a model (placeholder)."""
+        return []
+
+# Add missing function that routers are trying to import
+def get_feature_extractor():
+    """Get feature extractor - placeholder for router compatibility."""
+    try:
+        from backend.features.ewcl_sequencer import EWCLFeatureExtractor
+        return EWCLFeatureExtractor()
+    except ImportError:
+        # Return a minimal mock if the real extractor isn't available
+        class MockExtractor:
+            def extract_features(self, *args, **kwargs):
+                return {}
+        return MockExtractor()

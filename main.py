@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
 from typing import Optional, Dict, Any
-import sys, os, io, json, logging, time
+import sys, os, io, json, logging, time, requests
 
 # ── bootstrap sys.path ──────────────────────────────────────────────────────
 _ROOT = str(Path(__file__).resolve().parent)
@@ -22,11 +22,54 @@ logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 
 GIT_SHA = os.environ.get("GIT_SHA", "").strip() or None
 
+# Model download configuration for Railway
+MODELS_TO_FETCH = [
+    ("EWCLV1_MODEL_URL", "/app/models/disorder/ewclv1.pkl"),
+    ("EWCLV1_M_MODEL_URL", "/app/models/disorder/ewclv1-M.pkl"),
+    ("EWCLV1_P3_MODEL_URL", "/app/models/pdb/ewclv1p3.pkl"),
+    ("EWCLV1_C_MODEL_URL", "/app/models/clinvar/ewclv1-c.pkl"),
+    ("EWCLV1_C_FEATS_URL", "/app/models/clinvar/ewclv1-c_features.json"),
+]
+
+def _download_if_missing(url: str, dst: str):
+    """Download model file if it doesn't exist."""
+    p = Path(dst)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if p.exists():
+        log.info(f"[models] {dst} already exists, skipping download")
+        return
+    
+    log.info(f"[models] Downloading {url} -> {dst}")
+    try:
+        r = requests.get(url, stream=True, timeout=300)
+        r.raise_for_status()
+        with open(p, "wb") as f:
+            for chunk in r.iter_content(1 << 20):  # 1MB chunks
+                if chunk:
+                    f.write(chunk)
+        log.info(f"[models] ✅ Downloaded {dst}")
+    except Exception as e:
+        log.error(f"[models] ❌ Failed to download {dst}: {e}")
+        raise
+
 app = FastAPI(
     title="EWCL API",
     version="2025.09",
     description="EWCL disorder & ClinVar – one endpoint per model"
 )
+
+@app.on_event("startup")
+async def startup_pull_models():
+    """Download models from URLs if they don't exist (Railway deployment)."""
+    log.info("🚀 Checking for model downloads...")
+    for env_var, dst_path in MODELS_TO_FETCH:
+        url = os.getenv(env_var)
+        if url:
+            try:
+                _download_if_missing(url, dst_path)
+            except Exception as e:
+                log.warning(f"[models] Failed to fetch {env_var}: {e}")
+    log.info("✅ Model download check complete")
 
 # ── CORS ────────────────────────────────────────────────────────────────────
 origins = [
