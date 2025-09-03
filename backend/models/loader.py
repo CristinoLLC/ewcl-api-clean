@@ -31,9 +31,8 @@ class ModelBundle:
 
         try:
             self.model = joblib.load(self.model_path)
-        except Exception:
-            with open(self.model_path, 'rb') as f:
-                self.model = pickle.load(f)
+        except Exception as e:
+            raise RuntimeError(f"[{self.name}] Failed to load model with joblib: {e}")
 
         if self.feature_info_path and self.feature_info_path.exists():
             self.feature_info = json.loads(self.feature_info_path.read_text())
