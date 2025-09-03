@@ -4,7 +4,6 @@ from typing import List, Dict, Optional, Union
 import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
 import io
-from backend.models.model_manager import get_model
 
 router = APIRouter(prefix="/clinvar/ewclv1-C", tags=["clinvar-ewclv1-C"])
 
@@ -21,20 +20,26 @@ EWCLV1_C_FEATURES = [
     "emb_30", "emb_31"
 ]
 
-# Load model from model_manager - NO external JSON files
+# Load model directly, without model_manager
 MODEL = None
 _MODEL_NAME = "ewclv1-c"
 
 def _load_model():
+    """Load model directly, without model_manager."""
     global MODEL
+    model_path = os.environ.get("EWCLV1_C_MODEL_PATH")
+    if not model_path:
+        print(f"[warn] {_MODEL_NAME}: EWCLV1_C_MODEL_PATH env var not set, model will not be loaded.")
+        return
+    
     try:
-        MODEL = get_model("ewclv1-c")
-        if MODEL:
-            print(f"[info] Loaded EWCLv1-C model with {len(EWCLV1_C_FEATURES)} hardcoded features (no JSON)")
+        if os.path.exists(model_path):
+            MODEL = joblib.load(model_path)
+            print(f"[info] {_MODEL_NAME}: Loaded model directly from {model_path}")
         else:
-            print(f"[warn] EWCLv1-C model not found in model_manager")
+            print(f"[warn] {_MODEL_NAME}: Model file not found at {model_path}")
     except Exception as e:
-        print(f"[warn] Failed to load EWCLv1-C model: {e}")
+        print(f"[warn] {_MODEL_NAME}: Failed to load model: {e}")
 
 # Initialize
 _load_model()

@@ -1,8 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Dict, List
-import os, io, numpy as np, pandas as pd
-from backend.models.model_manager import get_model  # Use new model manager
+import os, io, numpy as np, pandas as pd, joblib
 
 # Exact features for ewclv1p3.pkl (302 features) - REAL features, not generic columns
 EWCLV1P3_302_FEATURES = [
@@ -58,15 +57,21 @@ _MODEL_NAME = "ewclv1p3"
 MODEL = None
 
 def _load_model():
+    """Load model directly, without model_manager."""
     global MODEL
+    model_path = os.environ.get("EWCLV1_P3_MODEL_PATH")
+    if not model_path:
+        print(f"[warn] {_MODEL_NAME}: EWCLV1_P3_MODEL_PATH env var not set, model will not be loaded.")
+        return
+    
     try:
-        MODEL = get_model("ewclv1-p3")  # Note: uses hyphen in model manager
-        if MODEL:
-            print(f"[info] Loaded EWCLv1-P3 model with {len(EWCLV1P3_302_FEATURES)} features")
+        if os.path.exists(model_path):
+            MODEL = joblib.load(model_path)
+            print(f"[info] {_MODEL_NAME}: Loaded model directly from {model_path}")
         else:
-            print(f"[warn] EWCLv1-P3 model not found in model manager")
+            print(f"[warn] {_MODEL_NAME}: Model file not found at {model_path}")
     except Exception as e:
-        print(f"[warn] Failed to load EWCLv1-P3 model: {e}")
+        print(f"[warn] {_MODEL_NAME}: Failed to load model: {e}")
 
 # Initialize model
 _load_model()

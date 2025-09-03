@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from pathlib import Path
 from typing import Optional, Dict, Any
 import sys, os, io, json, logging, time, requests
+from contextlib import asynccontextmanager
 
 # ── bootstrap sys.path ──────────────────────────────────────────────────────
 _ROOT = str(Path(__file__).resolve().parent)
@@ -28,7 +29,7 @@ MODELS_TO_FETCH = [
     ("EWCLV1_M_MODEL_URL", "/app/models/disorder/ewclv1-M.pkl"),
     ("EWCLV1_P3_MODEL_URL", "/app/models/pdb/ewclv1p3.pkl"),
     ("EWCLV1_C_MODEL_URL", "/app/models/clinvar/ewclv1-C.pkl"),
-    # Removed EWCLV1_C_FEATS_URL - not needed since router uses hardcoded features
+    ("EWCLV1_C_FEATURES_URL", "/app/models/clinvar/ewclv1-c_features.json"),
 ]
 
 def _download_if_missing(url: str, dst: str):
@@ -52,14 +53,8 @@ def _download_if_missing(url: str, dst: str):
         log.error(f"[models] ❌ Failed to download {dst}: {e}")
         raise
 
-app = FastAPI(
-    title="EWCL API",
-    version="2025.09",
-    description="EWCL disorder & ClinVar – one endpoint per model"
-)
-
-@app.on_event("startup")
-async def startup_pull_models():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Download models from URLs if they don't exist (Railway deployment)."""
     log.info("🚀 Checking for model downloads...")
     for env_var, dst_path in MODELS_TO_FETCH:
@@ -70,6 +65,14 @@ async def startup_pull_models():
             except Exception as e:
                 log.warning(f"[models] Failed to fetch {env_var}: {e}")
     log.info("✅ Model download check complete")
+    yield
+
+app = FastAPI(
+    title="EWCL API",
+    version="2025.09",
+    description="EWCL disorder & ClinVar – one endpoint per model",
+    lifespan=lifespan
+)
 
 # ── CORS ────────────────────────────────────────────────────────────────────
 origins = [
@@ -113,7 +116,7 @@ os.environ.setdefault("EWCLV1_MODEL_PATH", "/app/models/disorder/ewclv1.pkl")
 os.environ.setdefault("EWCLV1_M_MODEL_PATH", "/app/models/disorder/ewclv1-M.pkl")
 os.environ.setdefault("EWCLV1_P3_MODEL_PATH", "/app/models/pdb/ewclv1p3.pkl")
 os.environ.setdefault("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")  # Uppercase C
-os.environ.setdefault("EWCLV1_C_FEATURES_PATH", "/app/backend/config/ewclv1-c_features.json")  # Fixed path
+os.environ.setdefault("EWCLV1_C_FEATURES_PATH", "/app/models/clinvar/ewclv1-c_features.json")  # Corrected path
 
 for k, v in MODEL_ENVS.items():
     if v:
