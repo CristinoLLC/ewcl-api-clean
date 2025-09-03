@@ -29,7 +29,6 @@ MODELS_TO_FETCH = [
     ("EWCLV1_M_MODEL_URL", "/app/models/disorder/ewclv1-M.pkl"),
     ("EWCLV1_P3_MODEL_URL", "/app/models/pdb/ewclv1p3.pkl"),
     ("EWCLV1_C_MODEL_URL", "/app/models/clinvar/ewclv1-C.pkl"),
-    ("EWCLV1_C_FEATURES_URL", "/app/models/clinvar/ewclv1-c_features.json"),
 ]
 
 def _download_if_missing(url: str, dst: str):
@@ -108,21 +107,16 @@ MODEL_ENVS = {
     "ewclv1_p3": os.environ.get("EWCLV1_P3_MODEL_PATH"),
     "ewclv1_c":  os.environ.get("EWCLV1_C_MODEL_PATH"),
 }
-# keep features path separately (not probed as a model)
-EWCLV1_C_FEATURES_PATH = os.environ.get("EWCLV1_C_FEATURES_PATH")
 
 # Set default model paths with correct uppercase C filename
 os.environ.setdefault("EWCLV1_MODEL_PATH", "/app/models/disorder/ewclv1.pkl")
 os.environ.setdefault("EWCLV1_M_MODEL_PATH", "/app/models/disorder/ewclv1-M.pkl")
 os.environ.setdefault("EWCLV1_P3_MODEL_PATH", "/app/models/pdb/ewclv1p3.pkl")
 os.environ.setdefault("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")  # Uppercase C
-os.environ.setdefault("EWCLV1_C_FEATURES_PATH", "/app/models/clinvar/ewclv1-c_features.json")  # Corrected path
 
 for k, v in MODEL_ENVS.items():
     if v:
         log.info(f"[init] {k} model path = {v} (exists={Path(v).exists()})")
-if EWCLV1_C_FEATURES_PATH:
-    log.info(f"[init] ewclv1_c_features path = {EWCLV1_C_FEATURES_PATH} (exists={Path(EWCLV1_C_FEATURES_PATH).exists()})")
 
 # Public route slugs + health endpoints (internal probes)
 PROBE_MAP = {
@@ -229,8 +223,6 @@ async def models():
         "raw_router_enabled": ENABLE_RAW_ROUTERS,
         "clinvar_models": {}
     }
-    if EWCLV1_C_FEATURES_PATH:
-        info["env_paths"]["ewclv1_c_features"] = {"path": EWCLV1_C_FEATURES_PATH, "exists": Path(EWCLV1_C_FEATURES_PATH).exists()}
 
     try:
         transport = ASGITransport(app=app)

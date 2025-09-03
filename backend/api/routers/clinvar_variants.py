@@ -3,27 +3,44 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import numpy as np
 import pandas as pd
-import os
-
-# Use new model manager instead of singleton
-from backend.models.model_manager import get_model
+import os, joblib
 
 router = APIRouter(prefix="/clinvar", tags=["clinvar"])
 
-# --- Fallback feature order (if model lacks feature_names_in_) ---
-FALLBACK_FEATURE_ORDER = [
-    # sequence
-    "position", "sequence_length", "position_ratio",
-    # delta features
-    "delta_hydropathy", "delta_charge", "delta_helix_prop", "delta_sheet_prop",
-    "delta_entropy_w5", "delta_entropy_w11", "delta_entropy_w25",
-    # embeddings
-    "has_embeddings",
-    *[f"emb_{i}" for i in range(32)],
-    # optional extras if your model was trained with them (uncomment if needed)
-    # "is_conserved", "structural_score", "disorder_score", "coverage_score",
+# --- Model & Feature Definitions ---
+_MODEL_NAME = "ewclv1-c"
+MODEL = None
+
+# Hardcoded feature list, no external JSON needed
+EWCLV1_C_FEATURES = [
+    "position", "sequence_length", "position_ratio", "delta_hydropathy", "delta_charge",
+    "delta_entropy_w5", "delta_entropy_w11", "has_embeddings", "delta_helix_prop", 
+    "delta_sheet_prop", "delta_entropy_w25", "ewcl_hydropathy", "ewcl_charge_pH7",
+    "ewcl_entropy_w5", "ewcl_entropy_w11",
+    *[f"emb_{i}" for i in range(32)]
 ]
 
+def _load_model():
+    """Load model directly, without model_manager."""
+    global MODEL
+    model_path = os.environ.get("EWCLV1_C_MODEL_PATH")
+    if not model_path:
+        print(f"[warn] {_MODEL_NAME}: EWCLV1_C_MODEL_PATH env var not set.")
+        return
+    
+    try:
+        if os.path.exists(model_path):
+            MODEL = joblib.load(model_path)
+            print(f"[info] {_MODEL_NAME}: Loaded model directly from {model_path}")
+        else:
+            print(f"[warn] {_MODEL_NAME}: Model file not found at {model_path}")
+    except Exception as e:
+        print(f"[warn] {_MODEL_NAME}: Failed to load model: {e}")
+
+# Initialize model on startup
+_load_model()
+
+# --- Schemas ---
 class VariantIn(BaseModel):
     gene: Optional[str] = None
     protein_id: Optional[str] = None
@@ -33,36 +50,22 @@ class VariantIn(BaseModel):
 
 class ClinVarRequest(BaseModel):
     variants: List[VariantIn]
-    # Optional: let clients pass precomputed features directly
     features: Optional[List[Dict[str, float]]] = None
 
 @router.get("/ewclv1-c/health")
 def clinvar_health():
-    """
-    Load the ClinVar model and report feature count if available.
-    No SmartGate, no external features JSON required.
-    """
-    try:
-        # Use new model manager
-        clf = get_model("ewclv1-c")
-        if clf is None:
-            return {"ok": False, "model_name": "ewclv1-c", "loaded": False, "error": "Model not loaded"}
-        
-        feats = getattr(clf, "feature_names_in_", None)
-        return {
-            "ok": True,
-            "model_name": "ewclv1-c",
-            "loaded": True,
-            "feature_count": int(len(feats)) if feats is not None else None,
-            "uses_feature_names_in": bool(feats is not None),
-        }
-    except Exception as e:
-        return {"ok": False, "model_name": "ewclv1-c", "loaded": False, "error": str(e)}
+    """Health check for the ClinVar model."""
+    return {
+        "ok": True,
+        "model_name": _MODEL_NAME,
+        "loaded": MODEL is not None,
+        "feature_count": len(EWCLV1_C_FEATURES),
+        "ready": MODEL is not None,
+    }
 
 def _simple_featurize(v: VariantIn, seq_len: int = 500) -> Dict[str, float]:
     """
     Very simple, deterministic featurizer so endpoint works without SmartGate or embeddings.
-    Replace with your true featurization later.
     """
     aa_hydro = {
         'A': 1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5, 'C': 2.5, 'Q': -3.5, 'E': -3.5,
@@ -70,8 +73,8 @@ def _simple_featurize(v: VariantIn, seq_len: int = 500) -> Dict[str, float]:
         'P': -1.6, 'S': -0.8, 'T': -0.7, 'W': -0.9, 'Y': -1.3, 'V': 4.2
     }
     aa_charge7 = {'D': -1, 'E': -1, 'K': 1, 'R': 1, 'H': 0.1}
-    aa_helix = {'A': 1.45, 'L': 1.34, 'R': 1.01, 'K': 1.23, 'M': 1.20}  # toy
-    aa_sheet = {'V': 1.65, 'I': 1.60, 'Y': 1.47, 'F': 1.38, 'W': 1.19}  # toy
+    aa_helix = {'A': 1.45, 'L': 1.34, 'R': 1.01, 'K': 1.23, 'M': 1.20}
+    aa_sheet = {'V': 1.65, 'I': 1.60, 'Y': 1.47, 'F': 1.38, 'W': 1.19}
 
     r, a = v.ref_aa.upper(), v.alt_aa.upper()
     def get(d, k, default=0.0): return float(d.get(k, default))
@@ -84,13 +87,11 @@ def _simple_featurize(v: VariantIn, seq_len: int = 500) -> Dict[str, float]:
         "delta_charge": get(aa_charge7, a) - get(aa_charge7, r),
         "delta_helix_prop": get(aa_helix, a) - get(aa_helix, r),
         "delta_sheet_prop": get(aa_sheet, a) - get(aa_sheet, r),
-        # deterministic pseudo-entropy by AA identity (toy; replace with real)
         "delta_entropy_w5": float(hash(a) % 100 - hash(r) % 100) / 100.0,
         "delta_entropy_w11": float((hash(a+"x") % 100) - (hash(r+"x") % 100)) / 100.0,
         "delta_entropy_w25": float((hash("y"+a) % 100) - (hash("y"+r) % 100)) / 100.0,
         "has_embeddings": 0.0,
     }
-    # pad emb_0..emb_31 as zeros for now
     for i in range(32):
         feats[f"emb_{i}"] = 0.0
     return feats
@@ -99,22 +100,11 @@ def _simple_featurize(v: VariantIn, seq_len: int = 500) -> Dict[str, float]:
 def clinvar_predict(req: ClinVarRequest):
     """
     Deterministic ClinVar prediction using the ewclv1-c model.
-    Accepts `variants` and optional explicit `features`.
     """
-    try:
-        # Use new model manager
-        clf = get_model("ewclv1-c")
-        if clf is None:
-            raise Exception("Model not loaded in model manager")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ClinVar model not available: {e}")
+    if MODEL is None:
+        raise HTTPException(status_code=503, detail=f"ClinVar model '{_MODEL_NAME}' not available.")
 
-    feature_names = getattr(clf, "feature_names_in_", None)
-    if feature_names is not None:
-        feature_order = list(map(str, feature_names))  # ensure list[str]
-    else:
-        feature_order = FALLBACK_FEATURE_ORDER
-
+    feature_order = EWCLV1_C_FEATURES
     rows = []
     for i, v in enumerate(req.variants):
         if req.features and i < len(req.features):
@@ -122,17 +112,16 @@ def clinvar_predict(req: ClinVarRequest):
         else:
             feats = _simple_featurize(v)
 
-        # align to model's feature order
         aligned = {k: float(feats.get(k, 0.0)) for k in feature_order}
         rows.append(aligned)
 
     X = pd.DataFrame(rows, columns=feature_order)
 
     try:
-        if hasattr(clf, "predict_proba"):
-            probs = clf.predict_proba(X)[:, 1].tolist()
+        if hasattr(MODEL, "predict_proba"):
+            probs = MODEL.predict_proba(X)[:, 1].tolist()
         else:
-            preds = clf.predict(X)
+            preds = MODEL.predict(X)
             probs = preds.astype(float).tolist()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ClinVar prediction failed: {e}")
@@ -149,7 +138,7 @@ def clinvar_predict(req: ClinVarRequest):
         })
     return {
         "ok": True,
-        "model": "ewclv1-c",
+        "model": _MODEL_NAME,
         "n": len(out),
         "variants": out
     }
