@@ -28,7 +28,7 @@ MODELS_TO_FETCH = [
     ("EWCLV1_M_MODEL_URL", "/app/models/disorder/ewclv1-M.pkl"),
     ("EWCLV1_P3_MODEL_URL", "/app/models/pdb/ewclv1p3.pkl"),
     ("EWCLV1_C_MODEL_URL", "/app/models/clinvar/ewclv1-c.pkl"),
-    ("EWCLV1_C_FEATS_URL", "/app/models/clinvar/ewclv1-c_features.json"),
+    # Removed EWCLV1_C_FEATS_URL - not needed since router uses hardcoded features
 ]
 
 def _download_if_missing(url: str, dst: str):
@@ -166,10 +166,11 @@ try:
 except Exception as e:
     log.warning(f"[warn] ewclv1p3 router not mounted: {e}")
 
+# Re-enable ewclv1_C router now that features issue is fixed
 try:
     from backend.api.routers.ewclv1_C import router as ewclv1_C_router
     app.include_router(ewclv1_C_router)
-    log.info("[init] ewclv1-C router enabled (new prefix /clinvar/ewclv1-C)")
+    log.info("[init] ewclv1-C router enabled (prefix /clinvar/ewclv1-C)")
 except Exception as e:
     log.warning(f"[warn] ewclv1-C router not mounted: {e}")
 

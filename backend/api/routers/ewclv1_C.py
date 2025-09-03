@@ -18,20 +18,16 @@ _MODEL_NAME = "ewclv1-C"
 
 def _load_features():
     global FEATURES
-    try:
-        with open(FEATURES_PATH, 'r') as f:
-            data = json.load(f)
-        FEATURES = data if isinstance(data, list) else data.get("features", [])
-        print(f"[info] Loaded {len(FEATURES)} features for EWCLv1-C")
-    except Exception as e:
-        print(f"[warn] Failed to load features from {FEATURES_PATH}: {e}")
-        # Fallback to hardcoded feature list
-        FEATURES = [
-            "position", "sequence_length", "position_ratio", "delta_hydropathy", "delta_charge",
-            "delta_entropy_w5", "delta_entropy_w11", "has_embeddings", "delta_helix_prop", 
-            "delta_sheet_prop", "delta_entropy_w25", "ewcl_hydropathy", "ewcl_charge_pH7",
-            "ewcl_entropy_w5", "ewcl_entropy_w11"
-        ] + [f"emb_{i}" for i in range(32)]
+    # Use hardcoded feature list (always works)
+    FEATURES = [
+        "position", "sequence_length", "position_ratio", "delta_hydropathy", "delta_charge",
+        "delta_entropy_w5", "delta_entropy_w11", "has_embeddings", "delta_helix_prop", 
+        "delta_sheet_prop", "delta_entropy_w25", "ewcl_hydropathy", "ewcl_charge_pH7",
+        "ewcl_entropy_w5", "ewcl_entropy_w11"
+    ] + [f"emb_{i}" for i in range(32)]
+    
+    print(f"[info] Using {len(FEATURES)} hardcoded features for EWCLv1-C")
+    # Note: External features file loading disabled - using hardcoded feature names
 
 def _load_model():
     global MODEL
