@@ -5,11 +5,11 @@ import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
 import io
 
-router = APIRouter(prefix="/clinvar", tags=["clinvar-ewclv1-C"])
+router = APIRouter(prefix="/clinvar/ewclv1-C", tags=["clinvar-ewclv1-C"])
 
-# Model configuration
-MODEL_PATH = os.environ.get("EWCLV1C_DASH_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")
-FEATURES_PATH = os.environ.get("EWCLV1C_DASH_FEATURES_PATH", "/app/models/clinvar/v7_3_feature_list.json")
+# Model configuration (standardize env var names + correct default filenames)
+MODEL_PATH = os.environ.get("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-c.pkl")
+FEATURES_PATH = os.environ.get("EWCLV1_C_FEATURES_PATH", "/app/models/clinvar/ewclv1-c_features.json")
 
 # Load model and features
 MODEL = None
@@ -180,7 +180,7 @@ def health():
         "ready": MODEL is not None and len(FEATURES) > 0
     }
 
-@router.post("/analyze-variants/ewclv1-C")
+@router.post("/analyze-variants")
 def predict_variants(request: PredictRequest) -> PredictResponse:
     """Predict pathogenicity of variants using EWCLv1-C model."""
     if MODEL is None:
@@ -246,7 +246,7 @@ def predict_variants(request: PredictRequest) -> PredictResponse:
         variants=results
     )
 
-@router.post("/analyze-variants/ewclv1-C/batch")
+@router.post("/analyze-variants/batch")
 async def predict_variants_batch(file: UploadFile = File(...)) -> PredictResponse:
     """Batch predict variants from uploaded TSV/CSV file."""
     if MODEL is None:

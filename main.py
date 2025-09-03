@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
 from typing import Optional, Dict, Any
-import sys, os, io, json, logging
+import sys, os, io, json, logging, time
 
 # ── bootstrap sys.path ──────────────────────────────────────────────────────
 _ROOT = str(Path(__file__).resolve().parent)
@@ -19,6 +19,8 @@ from Bio import SeqIO
 
 log = logging.getLogger("ewcl")
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
+
+GIT_SHA = os.environ.get("GIT_SHA", "").strip() or None
 
 app = FastAPI(
     title="EWCL API",
@@ -53,18 +55,29 @@ class BodyLimit(BaseHTTPMiddleware):
         return await call_next(request)
 app.add_middleware(BodyLimit)
 
-# ── env model paths (visibility + quick sanity in /models) ──────────────────
+# ── env model paths (snake_case keys) ───────────────────────────────────────
 MODEL_ENVS = {
-    "ewclv1":   os.environ.get("EWCLV1_MODEL_PATH"),
-    "ewclv1-m": os.environ.get("EWCLV1_M_MODEL_PATH"),
-    "ewclv1-p3": os.environ.get("EWCLV1_P3_MODEL_PATH"),
-    "ewclv1-c": os.environ.get("EWCLV1_C_MODEL_PATH"),
+    "ewclv1":    os.environ.get("EWCLV1_MODEL_PATH"),
+    "ewclv1_m":  os.environ.get("EWCLV1_M_MODEL_PATH"),
+    "ewclv1_p3": os.environ.get("EWCLV1_P3_MODEL_PATH"),
+    "ewclv1_c":  os.environ.get("EWCLV1_C_MODEL_PATH"),
 }
-MODEL_ENVS["ewclv1-c_features"] = os.environ.get("EWCLV1_C_FEATURES_PATH")
+# keep features path separately (not probed as a model)
+EWCLV1_C_FEATURES_PATH = os.environ.get("EWCLV1_C_FEATURES_PATH")
 
-for k,v in MODEL_ENVS.items():
+for k, v in MODEL_ENVS.items():
     if v:
         log.info(f"[init] {k} model path = {v} (exists={Path(v).exists()})")
+if EWCLV1_C_FEATURES_PATH:
+    log.info(f"[init] ewclv1_c_features path = {EWCLV1_C_FEATURES_PATH} (exists={Path(EWCLV1_C_FEATURES_PATH).exists()})")
+
+# Public route slugs + health endpoints (internal probes)
+PROBE_MAP = {
+    "ewclv1":    "/ewcl/analyze-fasta/ewclv1/health",
+    "ewclv1_m":  "/ewcl/analyze-fasta/ewclv1-m/health",
+    "ewclv1_p3": "/ewcl/analyze-pdb/ewclv1-p3/health",
+    "ewclv1_c":  "/clinvar/health",
+}
 
 # ── optional raw routers (default OFF to keep public surface small) ─────────
 ENABLE_RAW_ROUTERS = os.environ.get("ENABLE_RAW_ROUTERS", "0") in ("1","true","True")
@@ -110,6 +123,13 @@ try:
 except Exception as e:
     log.warning(f"[warn] ewclv1p3 router not mounted: {e}")
 
+try:
+    from backend.api.routers.ewclv1_C import router as ewclv1_C_router
+    app.include_router(ewclv1_C_router)
+    log.info("[init] ewclv1-C router enabled (new prefix /clinvar/ewclv1-C)")
+except Exception as e:
+    log.warning(f"[warn] ewclv1-C router not mounted: {e}")
+
 # ClinVar variants router (always enabled - this is the main ClinVar endpoint)
 try:
     from backend.api.routers.clinvar_variants import router as clinvar_variants_router
@@ -120,58 +140,67 @@ except Exception as e:
 
 # ── health + models status ──────────────────────────────────────────────────
 @app.get("/")
-def root(): return {"ok": True, "msg": "EWCL API alive"}
+def root():
+    return {"ok": True, "msg": "EWCL API alive", "version": "2025.09", "git": GIT_SHA}
 
 @app.get("/healthz")
 def healthz(): return {"ok": True}
 
+@app.get("/readyz")
+def readyz():
+    missing = [k for k, v in MODEL_ENVS.items() if v and not Path(v).exists()]
+    return {
+        "ok": len(missing) == 0,
+        "missing_models": missing,
+        "configured": [k for k, v in MODEL_ENVS.items() if v],
+        "version": "2025.09",
+        "git": GIT_SHA
+    }
+
+# cache for /models
+_HEALTH_CACHE = {"ts": 0.0, "data": None}
+_HEALTH_TTL_SECONDS = 30.0
+
 @app.get("/models")
 async def models():
-    """Reports env model paths + loaded models from internal /ewcl/health (if present)."""
+    """Report env paths and live router health (cached)."""
+    now = time.monotonic()
+    if _HEALTH_CACHE["data"] is not None and (now - _HEALTH_CACHE["ts"] < _HEALTH_TTL_SECONDS):
+        cached = _HEALTH_CACHE["data"].copy()
+        # refresh exists flags quickly
+        cached["env_paths"] = {k: {"path": v, "exists": bool(v and Path(v).exists())} for k, v in MODEL_ENVS.items()}
+        return cached
+
     info = {
-        "env_paths": {k: {"path": v, "exists": bool(v and Path(v).exists())} for k,v in MODEL_ENVS.items()},
+        "env_paths": {k: {"path": v, "exists": bool(v and Path(v).exists())} for k, v in MODEL_ENVS.items()},
         "loaded_models": [],
         "raw_router_enabled": ENABLE_RAW_ROUTERS,
         "clinvar_models": {}
     }
-    # try check raw ewcl health if router mounted
+    if EWCLV1_C_FEATURES_PATH:
+        info["env_paths"]["ewclv1_c_features"] = {"path": EWCLV1_C_FEATURES_PATH, "exists": Path(EWCLV1_C_FEATURES_PATH).exists()}
+
     try:
         transport = ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://internal", timeout=10) as c:
             loaded = []
-            for model_name in MODEL_ENVS.keys():
+            for key, health_path in PROBE_MAP.items():
                 try:
-                    # probe each model's health check if possible
-                    if model_name == "ewclv1-M":
-                        r = await c.get(f"/ewcl/analyze-fasta/{model_name}/health")
-                    elif model_name == "ewclv1":
-                        r = await c.get(f"/ewcl/analyze-fasta/{model_name}/health")
-                    elif model_name == "ewclv1p3":
-                        r = await c.get(f"/ewcl/analyze-pdb/{model_name}/health")
-                    
-                    if r.status_code == 200 and r.json().get("loaded"):
-                        loaded.append(model_name)
+                    r = await c.get(health_path)
+                    if r.status_code == 200:
+                        j = r.json()
+                        if j.get("ok", True) and j.get("loaded", False):
+                            loaded.append(key)
+                        if key == "ewclv1_c":
+                            info["clinvar_models"]["ewclv1c"] = j
                 except Exception:
-                    pass # ignore errors if endpoint doesnt exist
+                    pass
             info["loaded_models"] = loaded
-            
-            # Check individual ClinVar model health
-            try:
-                r = await c.get("/clinvar/health")
-                if r.status_code == 200:
-                    info["clinvar_models"]["ewclv1c"] = r.json()
-            except:
-                pass
-            
-            try:
-                r = await c.get("/clinvar-dash/health")
-                if r.status_code == 200:
-                    info["clinvar_models"]["ewclv1c_dash"] = r.json()
-            except:
-                pass
-                
     except Exception as e:
         info["loaded_models_error"] = str(e)
+
+    _HEALTH_CACHE["ts"] = now
+    _HEALTH_CACHE["data"] = info.copy()
     return info
 
 # ── internal HTTP helper ───────────────────────────────────────────────────
@@ -224,5 +253,5 @@ if __name__ == "__main__":
     except (ValueError, TypeError):
         port = 8080
     
-    log.info(f"[startup] Starting server on 0.0.0.0:{port}")
+    log.info(f"[startup] Starting server on 0.0.0.0:{port} (git={GIT_SHA})")
     uvicorn.run(app, host="0.0.0.0", port=port)

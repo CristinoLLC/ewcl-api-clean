@@ -17,24 +17,13 @@ RUN pip install -r requirements.txt
 # copy app
 COPY . .
 
-# Create target directories explicitly
-RUN mkdir -p /app/models/disorder /app/models/clinvar /app/models/pdb
+# Create model directory and copy entire tree for robustness (avoid per-file COPY fragility)
+RUN mkdir -p /app/models
+COPY models/ /app/models/
+# List copied model artifacts for debugging
+RUN find /app/models -maxdepth 3 -type f -printf "%P\n" | sort
 
-# Copy models from actual repo structure - disorder models
-COPY models/disorder/ewclv1.pkl /app/models/disorder/ewclv1.pkl
-COPY models/disorder/ewclv1-M.pkl /app/models/disorder/ewclv1-M.pkl
-
-# Copy PDB model
-COPY models/pdb/ewclv1p3.pkl /app/models/pdb/ewclv1p3.pkl
-
-# Copy ClinVar models and features
-COPY models/clinvar/ewclv1-c.pkl /app/models/clinvar/ewclv1-c.pkl
-COPY models/clinvar/ewclv1-c_features.json /app/models/clinvar/ewclv1-c_features.json
-
-# Copy additional backend_bundle models if they exist
-COPY backend_bundle/models/EWCLv1C_Gate.pkl /app/models/clinvar/EWCLv1C_Gate.pkl
-
-# Set default env vars with UNDERSCORES (no hyphens) - can be overridden by platform secrets
+# Set default env vars (can be overridden). Use consistent lowercase filenames.
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
     EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl \
     EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl \
