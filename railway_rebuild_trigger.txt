@@ -1,0 +1,2 @@
+# Force Railway rebuild - trigger with empty commit
+# This file forces Railway to detect changes and rebuild from scratch
