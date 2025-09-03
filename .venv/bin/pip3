@@ -1,4 +1,4 @@
-#!/Users/lucascristino/ewcl-api-clean/.venv/bin/python3.10
+#!/Users/lucascristino/ewcl-api-clean/.venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys

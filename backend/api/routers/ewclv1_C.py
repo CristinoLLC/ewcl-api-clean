@@ -4,44 +4,40 @@ from typing import List, Dict, Optional, Union
 import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
 import io
+from backend.models.singleton import get_model_singleton
 
 router = APIRouter(prefix="/clinvar/ewclv1-C", tags=["clinvar-ewclv1-C"])
 
-# Model configuration (standardize env var names + correct default filenames)
-MODEL_PATH = os.environ.get("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")
-FEATURES_PATH = os.environ.get("EWCLV1_C_FEATURES_PATH", "/app/models/clinvar/ewclv1-c_features.json")
+# Exact ClinVar model features (47 features) - hardcoded from model training
+# NO external JSON loading - using exact features for Dr. Uversky benchmark
+EWCLV1_C_FEATURES = [
+    "position", "sequence_length", "position_ratio", "delta_hydropathy", "delta_charge",
+    "delta_entropy_w5", "delta_entropy_w11", "has_embeddings", "delta_helix_prop", 
+    "delta_sheet_prop", "delta_entropy_w25", "ewcl_hydropathy", "ewcl_charge_pH7",
+    "ewcl_entropy_w5", "ewcl_entropy_w11",
+    "emb_0", "emb_1", "emb_2", "emb_3", "emb_4", "emb_5", "emb_6", "emb_7", "emb_8", "emb_9",
+    "emb_10", "emb_11", "emb_12", "emb_13", "emb_14", "emb_15", "emb_16", "emb_17", "emb_18", "emb_19",
+    "emb_20", "emb_21", "emb_22", "emb_23", "emb_24", "emb_25", "emb_26", "emb_27", "emb_28", "emb_29",
+    "emb_30", "emb_31"
+]
 
-# Load model and features
+# Load model from singleton - NO external JSON files
 MODEL = None
-FEATURES = []
-_MODEL_NAME = "ewclv1-C"
-
-def _load_features():
-    global FEATURES
-    # Use hardcoded feature list (always works)
-    FEATURES = [
-        "position", "sequence_length", "position_ratio", "delta_hydropathy", "delta_charge",
-        "delta_entropy_w5", "delta_entropy_w11", "has_embeddings", "delta_helix_prop", 
-        "delta_sheet_prop", "delta_entropy_w25", "ewcl_hydropathy", "ewcl_charge_pH7",
-        "ewcl_entropy_w5", "ewcl_entropy_w11"
-    ] + [f"emb_{i}" for i in range(32)]
-    
-    print(f"[info] Using {len(FEATURES)} hardcoded features for EWCLv1-C")
-    # Note: External features file loading disabled - using hardcoded feature names
+_MODEL_NAME = "ewclv1-c"
 
 def _load_model():
     global MODEL
     try:
-        if Path(MODEL_PATH).exists():
-            MODEL = joblib.load(MODEL_PATH)
-            print(f"[info] Loaded EWCLv1-C model from {MODEL_PATH}")
+        singleton = get_model_singleton()
+        MODEL = singleton.get_model("ewclv1-c")
+        if MODEL:
+            print(f"[info] Loaded EWCLv1-C model with {len(EWCLV1_C_FEATURES)} hardcoded features (no JSON)")
         else:
-            print(f"[warn] Model not found at {MODEL_PATH}")
+            print(f"[warn] EWCLv1-C model not found in singleton")
     except Exception as e:
-        print(f"[warn] Failed to load model from {MODEL_PATH}: {e}")
+        print(f"[warn] Failed to load EWCLv1-C model: {e}")
 
 # Initialize
-_load_features()
 _load_model()
 
 # Schemas
@@ -162,18 +158,18 @@ def _build_features(sample: VariantSample) -> Dict[str, float]:
                     features[f"emb_{i}"] = 0.0
     
     # Ensure all required features are present
-    result = {feat_name: features.get(feat_name, 0.0) for feat_name in FEATURES}
+    result = {feat_name: features.get(feat_name, 0.0) for feat_name in EWCLV1_C_FEATURES}
     return result
 
 @router.get("/health")
 def health():
     return {
         "model": _MODEL_NAME,
-        "model_path": MODEL_PATH,
-        "features_path": FEATURES_PATH,
+        "model_path": None,
+        "features_path": None,
         "model_loaded": MODEL is not None,
-        "features_count": len(FEATURES),
-        "ready": MODEL is not None and len(FEATURES) > 0
+        "features_count": len(EWCLV1_C_FEATURES),
+        "ready": MODEL is not None and len(EWCLV1_C_FEATURES) > 0
     }
 
 @router.post("/analyze-variants")
@@ -182,7 +178,7 @@ def predict_variants(request: PredictRequest) -> PredictResponse:
     if MODEL is None:
         raise HTTPException(503, "EWCLv1-C model not loaded")
     
-    if not FEATURES:
+    if not EWCLV1_C_FEATURES:
         raise HTTPException(503, "Feature schema not loaded")
     
     results = []
@@ -190,8 +186,8 @@ def predict_variants(request: PredictRequest) -> PredictResponse:
     for sample in request.samples:
         try:
             # Use pre-computed feature array if provided, otherwise compute features
-            if sample.feature_array and len(sample.feature_array) == len(FEATURES):
-                feature_dict = {name: val for name, val in zip(FEATURES, sample.feature_array)}
+            if sample.feature_array and len(sample.feature_array) == len(EWCLV1_C_FEATURES):
+                feature_dict = {name: val for name, val in zip(EWCLV1_C_FEATURES, sample.feature_array)}
             else:
                 feature_dict = _build_features(sample)
             
@@ -212,7 +208,7 @@ def predict_variants(request: PredictRequest) -> PredictResponse:
             confidence = abs(prob - 0.5) * 2.0
             
             # Determine class
-            class_pred = "Pathogenic" if prob > 0.5 else "Benign"
+            class_pred = "pathogenic" if prob > 0.5 else "benign"
             
             results.append(PredictItem(
                 variant_id=sample.variant_id,
@@ -225,11 +221,11 @@ def predict_variants(request: PredictRequest) -> PredictResponse:
             ))
             
         except Exception as e:
-            print(f"[error] Prediction failed for {sample.variant_id}: {e}")
+            # Return neutral prediction for failed samples
             results.append(PredictItem(
                 variant_id=sample.variant_id,
                 pathogenic_prob=0.5,
-                class_prediction="Unknown",
+                class_prediction="uncertain",
                 confidence=0.0,
                 position=sample.position,
                 ref=sample.ref,
@@ -241,37 +237,3 @@ def predict_variants(request: PredictRequest) -> PredictResponse:
         count=len(results),
         variants=results
     )
-
-@router.post("/analyze-variants/batch")
-async def predict_variants_batch(file: UploadFile = File(...)) -> PredictResponse:
-    """Batch predict variants from uploaded TSV/CSV file."""
-    if MODEL is None:
-        raise HTTPException(503, "EWCLv1-C model not loaded")
-    
-    try:
-        content = await file.read()
-        df = pd.read_csv(io.StringIO(content.decode('utf-8')), sep=None, engine='python')
-        
-        # Expected columns: variant_id, position, ref, alt, sequence (optional: features...)
-        required_cols = ['variant_id', 'position', 'ref', 'alt']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            raise HTTPException(400, f"Missing required columns: {missing_cols}")
-        
-        samples = []
-        for _, row in df.iterrows():
-            sample = VariantSample(
-                variant_id=str(row['variant_id']),
-                position=int(row['position']) if pd.notna(row['position']) else None,
-                ref=str(row['ref']) if pd.notna(row['ref']) else None,
-                alt=str(row['alt']) if pd.notna(row['alt']) else None,
-                sequence=str(row['sequence']) if 'sequence' in row and pd.notna(row['sequence']) else None,
-                features={col: float(row[col]) for col in row.index if col.startswith('emb_') or col in FEATURES}
-            )
-            samples.append(sample)
-        
-        request = PredictRequest(samples=samples)
-        return predict_variants(request)
-        
-    except Exception as e:
-        raise HTTPException(400, f"Failed to process batch file: {e}")
