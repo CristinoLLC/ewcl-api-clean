@@ -4,6 +4,8 @@ from typing import Dict, List
 import os, io, numpy as np, pandas as pd
 from pathlib import Path
 from backend.models.loader import load_model_forgiving
+from .._schema import SequenceResponse, build_residue
+from ..utils.features import align_features_for_model
 
 # Exact features for ewclv1p3.pkl (302 features) - REAL features, not generic columns
 EWCLV1P3_302_FEATURES = [
@@ -134,11 +136,9 @@ def health_check():
             "feature_extractor": True
         }
 
-@router.post("/analyze-pdb/ewclv1-p3")
+@router.post("/analyze-pdb/ewclv1-p3", response_model=SequenceResponse)
 async def analyze_pdb_ewclv1_p3(file: UploadFile = File(...)):
     """Analyze PDB structure using EWCLv1-P3 model (302 REAL features)."""
-    model = _get_model()
-    
     try:
         raw = await file.read()
         
@@ -163,46 +163,37 @@ async def analyze_pdb_ewclv1_p3(file: UploadFile = File(...)):
         print(f"[ewclv1-p3] Processing PDB with {len(seq)} residues using REAL features")
 
         # Extract features using mock extractor with REAL feature names
-        feature_df = _mock_feature_extraction(seq)
-        print(f"[ewclv1-p3] Extracted REAL features: {feature_df.shape}")
-        
-        # Make prediction using singleton model
+        feat_df = _mock_feature_extraction(seq)
+        print(f"[ewclv1-p3] Extracted REAL features: {feat_df.shape}")
+
+        # Get model
+        model = _get_model()
+
+        # Align features for model
+        X, aas = align_features_for_model(model, feat_df)
+
+        # Make prediction
         if hasattr(model, 'predict_proba'):
-            predictions = model.predict_proba(feature_df)
+            predictions = model.predict_proba(X)
             if predictions.ndim > 1 and predictions.shape[1] > 1:
                 cl = predictions[:, 1]  # Probability of positive class
             else:
-                cl = predictions.flatten()
+                cl = model.predict(X).flatten()
         else:
-            cl = model.predict(feature_df)
-        
-        # Create response with per-residue scores
-        results = []
-        for i, (residue, score) in enumerate(zip(seq, cl)):
-            results.append({
-                "position": i + 1,
-                "residue": residue,
-                "score": float(score),
-                "prediction": "pathogenic" if score > 0.5 else "benign"
-            })
-        
-        print(f"[ewclv1-p3] Generated {len(results)} predictions")
-        
-        return {
-            "model": _MODEL_NAME,
-            "sequence_length": len(seq),
-            "features_used": len(EWCLV1P3_302_FEATURES),
-            "results": results,
-            "summary": {
-                "mean_score": float(np.mean(cl)),
-                "max_score": float(np.max(cl)),
-                "pathogenic_residues": int(np.sum(cl > 0.5)),
-                "total_residues": len(cl)
-            }
-        }
-    
+            cl = model.predict(X).flatten()
+
+        # Build residues
+        residues = []
+        for i, (aa, score, feats) in enumerate(zip(aas, cl, feat_df.to_dict('records'))):
+            residues.append(build_residue(i+1, aa, score, feats))
+
+        return SequenceResponse(
+            id=file.filename,
+            model="ewclv1-p3",
+            length=len(seq),
+            residues=residues
+        )
     except Exception as e:
-        print(f"[ewclv1-p3] Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 

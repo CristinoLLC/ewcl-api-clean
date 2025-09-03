@@ -5,6 +5,8 @@ import os, io, numpy as np, pandas as pd
 from pathlib import Path
 from Bio import SeqIO
 from backend.models.loader import load_model_forgiving
+from .._schema import SequenceResponse, build_residue
+from ..utils.features import align_features_for_model
 
 # Exact features for ewclv1-M.pkl (255 features) - extracted from model
 EWCLV1_M_255_FEATURES = [
@@ -105,11 +107,9 @@ def health_check():
             "feature_extractor": True
         }
 
-@router.post("/analyze-fasta/ewclv1-m")
+@router.post("/analyze-fasta/ewclv1-m", response_model=SequenceResponse)
 async def analyze_fasta_ewclv1_m(file: UploadFile = File(...)):
     """Analyze FASTA sequence using EWCLv1-M model (255 features)."""
-    model = _get_model()
-    
     try:
         raw = await file.read()
         try:
@@ -125,44 +125,36 @@ async def analyze_fasta_ewclv1_m(file: UploadFile = File(...)):
         print(f"[ewclv1-m] Processing sequence {seq_id} with {len(seq)} residues")
 
         # Extract features using mock extractor
-        feature_df = _mock_feature_extraction(seq)
-        print(f"[ewclv1-m] Extracted features: {feature_df.shape}")
-        
-        # Make prediction using singleton model
+        feat_df = _mock_feature_extraction(seq)
+        print(f"[ewclv1-m] Extracted features: {feat_df.shape}")
+
+        # Get model
+        model = _get_model()
+
+        # Align features for model
+        X, aas = align_features_for_model(model, feat_df)
+
+        # Make prediction
         if hasattr(model, 'predict_proba'):
-            predictions = model.predict_proba(feature_df)
+            predictions = model.predict_proba(X)
             if predictions.ndim > 1 and predictions.shape[1] > 1:
                 cl = predictions[:, 1]  # Probability of positive class
             else:
                 cl = predictions.flatten()
         else:
-            cl = model.predict(feature_df)
-        
-        # Create response with per-residue scores
-        results = []
-        for i, (residue, score) in enumerate(zip(seq, cl)):
-            results.append({
-                "position": i + 1,
-                "residue": residue,
-                "score": float(score),
-                "prediction": "pathogenic" if score > 0.5 else "benign"
-            })
-        
-        print(f"[ewclv1-m] Generated {len(results)} predictions")
-        
-        return {
-            "model": _MODEL_NAME,
-            "sequence_length": len(seq),
-            "features_used": len(EWCLV1_M_255_FEATURES),
-            "results": results,
-            "summary": {
-                "mean_score": float(np.mean(cl)),
-                "max_score": float(np.max(cl)),
-                "pathogenic_residues": int(np.sum(cl > 0.5)),
-                "total_residues": len(cl)
-            }
-        }
-    
+            cl = model.predict(X)
+
+        # Build clean response
+        residues = []
+        for i, (aa, score) in enumerate(zip(seq, cl), start=1):
+            residues.append(build_residue(i, aa, float(score), feat_df.iloc[i-1].to_dict()))
+
+        print(f"[ewclv1-m] Generated {len(residues)} predictions")
+
+        return SequenceResponse(id=seq_id, model="ewclv1-m", length=len(seq), residues=residues)
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ewclv1-m] Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"ewclv1-M FASTA analysis failed: {str(e)}")
