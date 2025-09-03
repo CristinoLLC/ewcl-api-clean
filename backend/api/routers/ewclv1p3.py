@@ -1,7 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Dict, List
-import os, io, numpy as np, pandas as pd, joblib
+import os, io, numpy as np, pandas as pd
+from pathlib import Path
+from backend.models.loader import load_model_forgiving
 
 # Exact features for ewclv1p3.pkl (302 features) - REAL features, not generic columns
 EWCLV1P3_302_FEATURES = [
@@ -56,25 +58,14 @@ EWCLV1P3_302_FEATURES = [
 _MODEL_NAME = "ewclv1p3"
 MODEL = None
 
-def _load_model():
-    """Load model directly, without model_manager."""
+def _get_model():
     global MODEL
-    model_path = os.environ.get("EWCLV1_P3_MODEL_PATH")
-    if not model_path:
-        print(f"[warn] {_MODEL_NAME}: EWCLV1_P3_MODEL_PATH env var not set, model will not be loaded.")
-        return
-    
-    try:
-        if os.path.exists(model_path):
-            MODEL = joblib.load(model_path)
-            print(f"[info] {_MODEL_NAME}: Loaded model directly from {model_path}")
-        else:
-            print(f"[warn] {_MODEL_NAME}: Model file not found at {model_path}")
-    except Exception as e:
-        print(f"[warn] {_MODEL_NAME}: Failed to load model: {e}")
-
-# Initialize model
-_load_model()
+    if MODEL is None:
+        path = os.environ.get("EWCLV1_P3_MODEL_PATH")
+        if not path or not Path(path).exists():
+            raise HTTPException(status_code=503, detail="Model path missing or file not found")
+        MODEL = load_model_forgiving(path)
+    return MODEL
 
 router = APIRouter(prefix="/ewcl", tags=[_MODEL_NAME])
 
@@ -122,20 +113,31 @@ def _mock_feature_extraction(seq: str) -> pd.DataFrame:
 @router.get("/analyze-pdb/ewclv1-p3/health")
 def health_check():
     """Health check for EWCLv1-P3 model."""
-    return {
-        "ok": True,
-        "model_name": _MODEL_NAME,
-        "loaded": MODEL is not None,
-        "features": len(EWCLV1P3_302_FEATURES),
-        "real_features": True,  # NO generic Column_X features
-        "feature_extractor": True
-    }
+    try:
+        model = _get_model()
+        return {
+            "ok": True,
+            "model_name": _MODEL_NAME,
+            "loaded": model is not None,
+            "features": len(EWCLV1P3_302_FEATURES),
+            "real_features": True,  # NO generic Column_X features
+            "feature_extractor": True
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "model_name": _MODEL_NAME,
+            "loaded": False,
+            "error": str(e),
+            "features": len(EWCLV1P3_302_FEATURES),
+            "real_features": True,
+            "feature_extractor": True
+        }
 
 @router.post("/analyze-pdb/ewclv1-p3")
 async def analyze_pdb_ewclv1_p3(file: UploadFile = File(...)):
     """Analyze PDB structure using EWCLv1-P3 model (302 REAL features)."""
-    if MODEL is None:
-        raise HTTPException(status_code=503, detail=f"Model {_MODEL_NAME} not loaded")
+    model = _get_model()
     
     try:
         raw = await file.read()
@@ -165,43 +167,9 @@ async def analyze_pdb_ewclv1_p3(file: UploadFile = File(...)):
         print(f"[ewclv1-p3] Extracted REAL features: {feature_df.shape}")
         
         # Make prediction using singleton model
-        if hasattr(MODEL, 'predict_proba'):
-            predictions = MODEL.predict_proba(feature_df)
+        if hasattr(model, 'predict_proba'):
+            predictions = model.predict_proba(feature_df)
             if predictions.ndim > 1 and predictions.shape[1] > 1:
                 cl = predictions[:, 1]  # Probability of positive class
-            else:
-                cl = predictions.flatten()
-        else:
-            cl = MODEL.predict(feature_df)
-        
-        # Create response with per-residue scores
-        results = []
-        for i, (residue, score) in enumerate(zip(seq, cl)):
-            results.append({
-                "position": i + 1,
-                "residue": residue,
-                "score": float(score),
-                "prediction": "pathogenic" if score > 0.5 else "benign"
-            })
-        
-        print(f"[ewclv1-p3] Generated {len(results)} predictions with REAL features")
-        
-        return {
-            "model": _MODEL_NAME,
-            "sequence_length": len(seq),
-            "features_used": len(EWCLV1P3_302_FEATURES),
-            "real_features": True,  # NO generic Column_X features
-            "results": results,
-            "summary": {
-                "mean_score": float(np.mean(cl)),
-                "max_score": float(np.max(cl)),
-                "pathogenic_residues": int(np.sum(cl > 0.5)),
-                "total_residues": len(cl)
-            }
-        }
-    
-    except Exception as e:
-        print(f"[ewclv1-p3] Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
+           
 

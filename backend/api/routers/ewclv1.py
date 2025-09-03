@@ -1,8 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Dict, List
-import os, io, numpy as np, pandas as pd, joblib
+import os, io, numpy as np, pandas as pd
+from pathlib import Path
 from Bio import SeqIO
+from backend.models.loader import load_model_forgiving
 
 # Exact features for ewclv1.pkl (249 features) - extracted from model
 EWCLV1_249_FEATURES = [
@@ -40,25 +42,14 @@ EWCLV1_249_FEATURES = [
 _MODEL_NAME = "ewclv1"
 MODEL = None
 
-def _load_model():
-    """Load model directly, without model_manager."""
+def _get_model():
     global MODEL
-    model_path = os.environ.get("EWCLV1_MODEL_PATH")
-    if not model_path:
-        print(f"[warn] {_MODEL_NAME}: EWCLV1_MODEL_PATH env var not set, model will not be loaded.")
-        return
-    
-    try:
-        if os.path.exists(model_path):
-            MODEL = joblib.load(model_path)
-            print(f"[info] {_MODEL_NAME}: Loaded model directly from {model_path}")
-        else:
-            print(f"[warn] {_MODEL_NAME}: Model file not found at {model_path}")
-    except Exception as e:
-        print(f"[warn] {_MODEL_NAME}: Failed to load model: {e}")
-
-# Initialize model
-_load_model()
+    if MODEL is None:
+        path = os.environ.get("EWCLV1_MODEL_PATH")
+        if not path or not Path(path).exists():
+            raise HTTPException(status_code=503, detail="Model path missing or file not found")
+        MODEL = load_model_forgiving(path)
+    return MODEL
 
 router = APIRouter(prefix="/ewcl", tags=[_MODEL_NAME])
 
@@ -92,19 +83,29 @@ def _mock_feature_extraction(seq: str) -> pd.DataFrame:
 @router.get("/analyze-fasta/ewclv1/health")
 def health_check():
     """Health check for EWCLv1 model."""
-    return {
-        "ok": True,
-        "model_name": _MODEL_NAME,
-        "loaded": MODEL is not None,
-        "features": len(EWCLV1_249_FEATURES),
-        "feature_extractor": True  # Mock extractor always available
-    }
+    try:
+        model = _get_model()
+        return {
+            "ok": True,
+            "model_name": _MODEL_NAME,
+            "loaded": model is not None,
+            "features": len(EWCLV1_249_FEATURES),
+            "feature_extractor": True  # Mock extractor always available
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "model_name": _MODEL_NAME,
+            "loaded": False,
+            "error": str(e),
+            "features": len(EWCLV1_249_FEATURES),
+            "feature_extractor": True
+        }
 
 @router.post("/analyze-fasta/ewclv1")
 async def analyze_fasta_ewclv1(file: UploadFile = File(...)):
     """Analyze FASTA sequence using EWCLv1 model (249 features)."""
-    if MODEL is None:
-        raise HTTPException(status_code=503, detail=f"Model {_MODEL_NAME} not loaded")
+    model = _get_model()
     
     try:
         raw = await file.read()
@@ -125,44 +126,9 @@ async def analyze_fasta_ewclv1(file: UploadFile = File(...)):
         print(f"[ewclv1] Extracted features: {feature_df.shape}")
         
         # Make prediction using singleton model
-        if hasattr(MODEL, 'predict_proba'):
-            predictions = MODEL.predict_proba(feature_df)
+        if hasattr(model, 'predict_proba'):
+            predictions = model.predict_proba(feature_df)
             if predictions.ndim > 1 and predictions.shape[1] > 1:
                 cl = predictions[:, 1]  # Probability of positive class
-            else:
-                cl = predictions.flatten()
-        else:
-            cl = MODEL.predict(feature_df)
-        
-        cl = np.clip(cl, 0.0, 1.0)
-        conf = 1.0 - np.abs(cl - 0.5) * 2.0
-        conf = np.clip(conf, 0.0, 1.0)
-
-        # Build response
-        residues = []
-        for i, a in enumerate(seq, start=1):
-            residues.append({
-                "residue_index": i, 
-                "aa": a,
-                "cl": float(cl[i-1]), 
-                "confidence": float(conf[i-1]),
-                "hydro_entropy": 0.0,  # Mock overlay
-                "charge_entropy": 0.0,  # Mock overlay
-                "curvature": None, 
-                "flips": 0.0,
-            })
-
-        print(f"[ewclv1] Successfully processed {len(residues)} residues")
-        return JSONResponse(content={
-            "id": seq_id, "model": _MODEL_NAME, "length": len(seq), "residues": residues
-        })
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        print(f"[ewclv1] ERROR: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"{_MODEL_NAME} FASTA analysis failed: {e}")
-
+           
 
