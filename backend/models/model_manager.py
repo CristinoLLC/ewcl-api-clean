@@ -9,17 +9,20 @@ import json
 from typing import Optional, Any, Dict
 import threading
 
-# Model registry with correct paths
+# Get the base directory (project root)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Model registry with relative paths from project root
 MODEL_REGISTRY = {
-    "ewclv1": "/Users/lucascristino/ewcl-api-clean/models/disorder/ewclv1.pkl",
-    "ewclv1-m": "/Users/lucascristino/ewcl-api-clean/models/disorder/ewclv1-M.pkl", 
-    "ewclv1-p3": "/Users/lucascristino/ewcl-api-clean/models/pdb/ewclv1p3.pkl",
-    "ewclv1-c": "/Users/lucascristino/ewcl-api-clean/models/clinvar/ewclv1-C.pkl",
+    "ewclv1": os.path.join(BASE_DIR, "models", "disorder", "ewclv1.pkl"),
+    "ewclv1-m": os.path.join(BASE_DIR, "models", "disorder", "ewclv1-M.pkl"), 
+    "ewclv1-p3": os.path.join(BASE_DIR, "models", "pdb", "ewclv1p3.pkl"),
+    "ewclv1-c": os.path.join(BASE_DIR, "models", "clinvar", "ewclv1-C.pkl"),
 }
 
 # Configuration registry (non-model files)
 CONFIG_REGISTRY = {
-    "ewclv1-c-features": "/Users/lucascristino/ewcl-api-clean/backend/config/ewclv1-c_features.json"
+    "ewclv1-c-features": os.path.join(BASE_DIR, "backend", "config", "ewclv1-c_features.json")
 }
 
 # Cache for loaded models
