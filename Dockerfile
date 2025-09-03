@@ -23,11 +23,11 @@ COPY models/ /app/models/
 # List copied model artifacts for debugging
 RUN find /app/models -maxdepth 3 -type f -printf "%P\n" | sort
 
-# Set default env vars (can be overridden). Use consistent lowercase filenames.
+# Set default env vars (can be overridden). Correct names for loader.
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
-    EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl \
-    EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl \
-    EWCLV1_C_MODEL_PATH=/app/models/clinvar/ewclv1-c.pkl \
+    EWCLV1M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl \
+    EWCLV1P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl \
+    EWCLV1C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl \
     EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json \
     MAX_BODY_BYTES=100000000 \
     PORT=8080

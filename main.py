@@ -168,7 +168,16 @@ try:
 except Exception as e:
     log.warning(f"[warn] ewclv1p3 router not mounted: {e}")
 
-# Removed old ewclv1_C router - replaced by simplified clinvar_variants router
+# ── ewcl-v1-c (clinvar) router ───────────────────────────────────────────────
+# This model has its own feature extraction logic, so it's managed separately.
+ENABLE_EWCLV1_C_ROUTER = os.environ.get("ENABLE_EWCLV1_C_ROUTER", "0") in ("1", "true", "True")
+if ENABLE_EWCLV1_C_ROUTER:
+    try:
+        from backend.api.routers.ewclv1_C import router as clinvar_router
+        app.include_router(clinvar_router)
+        log.info("[init] ClinVar variants router enabled")
+    except ImportError as e:
+        log.warning(f"[init] Could not import ClinVar router: {e}")
 
 # ClinVar variants router (always enabled - this is the main ClinVar endpoint)
 try:
