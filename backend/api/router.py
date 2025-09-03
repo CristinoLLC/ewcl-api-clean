@@ -4,30 +4,28 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 
 from backend.config import settings
-from backend.models.loader import load_all
-# Remove the broken imports - we'll use our individual routers instead
-# from backend.features.ewclv1m import prepare_features_ewclv1m
-# from backend.features.ewclv1 import prepare_features_ewclv1
-
+# Remove the broken import - we'll use our individual routers instead
+# from backend.models.loader import load_all
 
 router = APIRouter(prefix="/ewcl", tags=["ewcl"])
 
-BUNDLE = settings.ewcl_bundle_dir
-MODELS = load_all(BUNDLE)
-if not MODELS:
-    raise RuntimeError(f"No EWCL models found in {BUNDLE}")
+# Remove the model loading since we're using individual routers now
+# BUNDLE = settings.ewcl_bundle_dir
+# MODELS = load_all(BUNDLE)
+# if not MODELS:
+#     raise RuntimeError(f"No EWCL models found in {BUNDLE}")
 
-def _require_list(mb) -> list[str]:
-    fi = mb.feature_info
-    if isinstance(fi, dict):
-        feats = fi.get("all_features")
-        if isinstance(feats, list):
-            return feats
-    if isinstance(fi, list):
-        return fi
-    return []
+# def _require_list(mb) -> list[str]:
+#     fi = mb.feature_info
+#     if isinstance(fi, dict):
+#         feats = fi.get("all_features")
+#         if isinstance(feats, list):
+#             return feats
+#     if isinstance(fi, list):
+#         return fi
+#     return []
 
-REQUIRES = {k: _require_list(v) for k, v in MODELS.items()}
+# REQUIRES = {k: _require_list(v) for k, v in MODELS.items()}
 
 
 class ResidueSample(BaseModel):

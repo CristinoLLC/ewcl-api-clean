@@ -123,7 +123,7 @@ PROBE_MAP = {
     "ewclv1":    "/ewcl/analyze-fasta/ewclv1/health",
     "ewclv1_m":  "/ewcl/analyze-fasta/ewclv1-m/health",
     "ewclv1_p3": "/ewcl/analyze-pdb/ewclv1-p3/health",
-    "ewclv1_c":  "/clinvar/ewclv1-c/health",  # Updated to match new router
+    "ewclv1_c":  "/clinvar/ewclv1-C/health",  # Fixed case to match router prefix
 }
 
 # ── optional raw routers (default OFF to keep public surface small) ─────────
@@ -167,7 +167,7 @@ except Exception as e:
 
 # ── ewcl-v1-c (clinvar) router ───────────────────────────────────────────────
 # This model has its own feature extraction logic, so it's managed separately.
-ENABLE_EWCLV1_C_ROUTER = os.environ.get("ENABLE_EWCLV1_C_ROUTER", "0") in ("1", "true", "True")
+ENABLE_EWCLV1_C_ROUTER = os.environ.get("ENABLE_EWCLV1_C_ROUTER", "1") in ("1", "true", "True")  # Changed default to 1
 if ENABLE_EWCLV1_C_ROUTER:
     try:
         from backend.api.routers.ewclv1_C import router as clinvar_router
