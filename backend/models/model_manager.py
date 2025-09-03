@@ -4,10 +4,12 @@ Models are loaded once at startup and stored in a simple global dict.
 """
 
 import os
-import joblib  # Changed from pickle to joblib
+import joblib
 import json
 from typing import Optional, Any, Dict
 import threading
+from pathlib import Path
+from backend.models.loader import ModelBundle, load_all
 
 # Get the base directory (project root)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,32 +31,42 @@ CONFIG_REGISTRY = {
 _model_cache: Dict[str, Any] = {}
 _cache_lock = threading.Lock()
 
+def _load_models_with_loader():
+    """Load all models using the ModelBundle loader."""
+    with _cache_lock:
+        if "ewclv1" in _model_cache:  # Assume if one is loaded, all are
+            return
+        
+        print("[model_manager] Initializing models with loader...")
+        try:
+            # The loader expects a directory containing the models and meta files
+            bundle_dir = Path(BASE_DIR) / "backend_bundle"
+            bundles = load_all(bundle_dir)
+            
+            for name, bundle in bundles.items():
+                _model_cache[name] = bundle.model
+                print(f"[model_manager] Loaded model '{name}' via loader.")
+                
+                # Also cache feature info if available
+                if bundle.feature_info:
+                    _model_cache[f"{name}-features"] = bundle.feature_info
+
+        except Exception as e:
+            print(f"[model_manager] CRITICAL: Failed to initialize models with loader: {e}")
+
 def get_model(model_name: str) -> Optional[Any]:
     """Get a model from the registry, loading it if not already cached."""
     with _cache_lock:
+        # On first call, use the new loader
+        if not _model_cache:
+            _load_models_with_loader()
+
         # Check cache first
         if model_name in _model_cache:
             return _model_cache[model_name]
         
-        # Try to load from model registry
-        if model_name in MODEL_REGISTRY:
-            model_path = MODEL_REGISTRY[model_name]
-            try:
-                if os.path.exists(model_path):
-                    # Use joblib to load the model
-                    model = joblib.load(model_path)
-                    _model_cache[model_name] = model
-                    print(f"[model_manager] Loaded model {model_name} from {model_path}")
-                    return model
-                else:
-                    print(f"[model_manager] Model file not found: {model_path}")
-                    return None
-            except Exception as e:
-                print(f"[model_manager] Error loading model {model_name}: {e}")
-                return None
-        
-        # Try to load from config registry  
-        elif model_name in CONFIG_REGISTRY:
+        # Fallback for configs or if loader fails
+        if model_name in CONFIG_REGISTRY:
             config_path = CONFIG_REGISTRY[model_name]
             try:
                 if os.path.exists(config_path):
@@ -69,10 +81,9 @@ def get_model(model_name: str) -> Optional[Any]:
             except Exception as e:
                 print(f"[model_manager] Error loading config {model_name}: {e}")
                 return None
-        
-        else:
-            print(f"[model_manager] Unknown model/config: {model_name}")
-            return None
+
+        print(f"[model_manager] Model or config '{model_name}' not found in cache.")
+        return None
 
 def get_available_models() -> Dict[str, str]:
     """Get a dictionary of available models and their status."""
