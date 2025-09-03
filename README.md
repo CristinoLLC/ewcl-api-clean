@@ -28,4 +28,7 @@ uvicorn main:app --reload --port 8000
 2. Connect to Render
 3. Deploy with `render.yaml` configuration
 
+### Railway Deployment
+Railway deployment with automatic Git LFS model downloads and router fixes applied.
+
 No ML model files required.
