@@ -1,114 +1,158 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel, Field
-from functools import lru_cache
-import os, json, numpy as np, joblib, math
-from typing import List, Dict, Any, Optional
+from typing import List, Optional, Dict, Any
+import numpy as np
+import pandas as pd
+import os
+
+# Singleton accessor you already have
+from backend.models.singleton import get_model_singleton
 
 router = APIRouter(prefix="/clinvar", tags=["clinvar"])
 
-class VariantRequest(BaseModel):
-    protein_id: str
-    position: int = Field(..., ge=1)
-    from_aa: str
-    to_aa: str
-    variant_type: str  # substitution | deletion | insertion | delins
-    sequence_length: Optional[int] = None
-    features: Dict[str, float] = {}
+# --- Fallback feature order (if model lacks feature_names_in_) ---
+FALLBACK_FEATURE_ORDER = [
+    # sequence
+    "position", "sequence_length", "position_ratio",
+    # delta features
+    "delta_hydropathy", "delta_charge", "delta_helix_prop", "delta_sheet_prop",
+    "delta_entropy_w5", "delta_entropy_w11", "delta_entropy_w25",
+    # embeddings
+    "has_embeddings",
+    *[f"emb_{i}" for i in range(32)],
+    # optional extras if your model was trained with them (uncomment if needed)
+    # "is_conserved", "structural_score", "disorder_score", "coverage_score",
+]
 
-class VariantsPayload(BaseModel):
-    variants: List[VariantRequest]
-    threshold: float = 0.5
+class VariantIn(BaseModel):
+    gene: Optional[str] = None
+    protein_id: Optional[str] = None
+    protein_pos: int = Field(..., ge=1, description="1-based residue index")
+    ref_aa: str
+    alt_aa: str
 
-@lru_cache(maxsize=1)
-def _load_model_and_features():
-    """Load single ClinVar model and ordered feature list (cached)."""
-    model_path = os.getenv("EWCLV1_C_MODEL_PATH")
-    feat_path = os.getenv("EWCLV1_C_FEATURES_PATH")
+class ClinVarRequest(BaseModel):
+    variants: List[VariantIn]
+    # Optional: let clients pass precomputed features directly
+    features: Optional[List[Dict[str, float]]] = None
 
-    if not model_path or not os.path.exists(model_path):
-        raise RuntimeError(f"ClinVar model not found at {model_path}")
-    if not feat_path or not os.path.exists(feat_path):
-        # Fallback: accept lowercase variant if provided file name differs
-        alt = feat_path.replace("EWCLv1-C_features.json", "ewclv1-c_features.json") if feat_path else None
-        if alt and os.path.exists(alt):
-            feat_path = alt
-        else:
-            raise RuntimeError(f"ClinVar features JSON not found at {feat_path}")
-
-    model = joblib.load(model_path)
-    with open(feat_path) as f:
-        data = json.load(f)
-    if isinstance(data, dict) and "features" in data:
-        feats = [str(x) for x in data["features"]]
-    elif isinstance(data, list):
-        feats = [str(x) for x in data]
-    else:
-        raise RuntimeError("Unrecognized feature list JSON format")
-    return model, feats
-
-def _align(feat_dict: Dict[str, float], order: List[str]):
-    x = np.zeros(len(order), dtype=np.float32)
-    missing = []
-    for i, name in enumerate(order):
-        if name in feat_dict:
-            try:
-                x[i] = float(feat_dict[name])
-            except Exception:
-                x[i] = 0.0
-        else:
-            missing.append(name)
-    coverage = 1.0 - (len(missing) / len(order) if order else 0.0)
-    return x, missing, coverage
-
-def _prob_to_confidence(p: float) -> float:
-    p = min(max(p, 1e-8), 1 - 1e-8)
-    ent = -(p * math.log2(p) + (1 - p) * math.log2(1 - p))  # entropy in bits (0..1)
-    return float(1.0 - ent)
-
-@router.get("/health")
-def health():
+@router.get("/ewclv1-c/health")
+def clinvar_health():
+    """
+    Load the ClinVar model and report feature count if available.
+    No SmartGate, no external features JSON required.
+    """
+    ms = get_model_singleton()
     try:
-        model, feats = _load_model_and_features()
-        return {"ok": True, "model": "ewclv1-c", "loaded": True, "n_features": len(feats)}
+        # Prefer env var path; fallback to image default
+        path = os.getenv("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")
+        clf = ms.get_model("ewclv1-c")  # Use existing get_model method
+        if clf is None:
+            return {"ok": False, "model_name": "ewclv1-c", "loaded": False, "error": "Model not loaded"}
+        
+        feats = getattr(clf, "feature_names_in_", None)
+        return {
+            "ok": True,
+            "model_name": "ewclv1-c",
+            "loaded": True,
+            "feature_count": int(len(feats)) if feats is not None else None,
+            "uses_feature_names_in": bool(feats is not None),
+        }
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "model_name": "ewclv1-c", "loaded": False, "error": str(e)}
+
+def _simple_featurize(v: VariantIn, seq_len: int = 500) -> Dict[str, float]:
+    """
+    Very simple, deterministic featurizer so endpoint works without SmartGate or embeddings.
+    Replace with your true featurization later.
+    """
+    aa_hydro = {
+        'A': 1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5, 'C': 2.5, 'Q': -3.5, 'E': -3.5,
+        'G': -0.4, 'H': -3.2, 'I': 4.5, 'L': 3.8, 'K': -3.9, 'M': 1.9, 'F': 2.8,
+        'P': -1.6, 'S': -0.8, 'T': -0.7, 'W': -0.9, 'Y': -1.3, 'V': 4.2
+    }
+    aa_charge7 = {'D': -1, 'E': -1, 'K': 1, 'R': 1, 'H': 0.1}
+    aa_helix = {'A': 1.45, 'L': 1.34, 'R': 1.01, 'K': 1.23, 'M': 1.20}  # toy
+    aa_sheet = {'V': 1.65, 'I': 1.60, 'Y': 1.47, 'F': 1.38, 'W': 1.19}  # toy
+
+    r, a = v.ref_aa.upper(), v.alt_aa.upper()
+    def get(d, k, default=0.0): return float(d.get(k, default))
+
+    feats = {
+        "position": float(v.protein_pos),
+        "sequence_length": float(seq_len),
+        "position_ratio": float(v.protein_pos) / float(seq_len),
+        "delta_hydropathy": get(aa_hydro, a) - get(aa_hydro, r),
+        "delta_charge": get(aa_charge7, a) - get(aa_charge7, r),
+        "delta_helix_prop": get(aa_helix, a) - get(aa_helix, r),
+        "delta_sheet_prop": get(aa_sheet, a) - get(aa_sheet, r),
+        # deterministic pseudo-entropy by AA identity (toy; replace with real)
+        "delta_entropy_w5": float(hash(a) % 100 - hash(r) % 100) / 100.0,
+        "delta_entropy_w11": float((hash(a+"x") % 100) - (hash(r+"x") % 100)) / 100.0,
+        "delta_entropy_w25": float((hash("y"+a) % 100) - (hash("y"+r) % 100)) / 100.0,
+        "has_embeddings": 0.0,
+    }
+    # pad emb_0..emb_31 as zeros for now
+    for i in range(32):
+        feats[f"emb_{i}"] = 0.0
+    return feats
 
 @router.post("/analyze-variants")
-def analyze_variants(payload: VariantsPayload):
-    model, order = _load_model_and_features()
-    if not payload.variants:
-        return {"model": "ewclv1-c", "n_variants": 0, "variants": []}
-
-    X_list, miss_list, cov_list = [], [], []
-    for v in payload.variants:
-        x, missing, cov = _align(v.features or {}, order)
-        X_list.append(x); miss_list.append(missing); cov_list.append(cov)
-
-    X = np.vstack(X_list)
+def clinvar_predict(req: ClinVarRequest):
+    """
+    Deterministic ClinVar prediction using the ewclv1-c model.
+    Accepts `variants` and optional explicit `features`.
+    """
+    ms = get_model_singleton()
+    path = os.getenv("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")
     try:
-        if hasattr(model, "predict_proba"):
-            probs = model.predict_proba(X)[:, 1]
-        else:
-            raw = model.predict(X)
-            probs = np.clip(raw, 0.0, 1.0)
+        clf = ms.get_model("ewclv1-c")
+        if clf is None:
+            raise Exception("Model not loaded in singleton")
     except Exception as e:
-        raise HTTPException(500, f"ClinVar model inference failed: {e}")
+        raise HTTPException(status_code=500, detail=f"ClinVar model not available: {e}")
+
+    feature_names = getattr(clf, "feature_names_in_", None)
+    if feature_names is not None:
+        feature_order = list(map(str, feature_names))  # ensure list[str]
+    else:
+        feature_order = FALLBACK_FEATURE_ORDER
+
+    rows = []
+    for i, v in enumerate(req.variants):
+        if req.features and i < len(req.features):
+            feats = dict(req.features[i])
+        else:
+            feats = _simple_featurize(v)
+
+        # align to model's feature order
+        aligned = {k: float(feats.get(k, 0.0)) for k in feature_order}
+        rows.append(aligned)
+
+    X = pd.DataFrame(rows, columns=feature_order)
+
+    try:
+        if hasattr(clf, "predict_proba"):
+            probs = clf.predict_proba(X)[:, 1].tolist()
+        else:
+            preds = clf.predict(X)
+            probs = preds.astype(float).tolist()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ClinVar prediction failed: {e}")
 
     out = []
-    for v, p, missing, cov in zip(payload.variants, probs, miss_list, cov_list):
-        label = "pathogenic" if p >= payload.threshold else "benign"
+    for i, v in enumerate(req.variants):
         out.append({
+            "gene": v.gene,
             "protein_id": v.protein_id,
-            "position": v.position,
-            "from_aa": v.from_aa,
-            "to_aa": v.to_aa,
-            "variant_type": v.variant_type,
-            "sequence_length": v.sequence_length,
-            "probability": float(p),
-            "class": label,
-            "confidence": _prob_to_confidence(float(p)),
-            "coverage": cov,
-            "missing_features": missing
+            "protein_pos": v.protein_pos,
+            "ref_aa": v.ref_aa,
+            "alt_aa": v.alt_aa,
+            "pathogenic_prob": probs[i],
         })
-
-    return {"model": "ewclv1-c", "n_variants": len(out), "variants": out}
+    return {
+        "ok": True,
+        "model": "ewclv1-c",
+        "n": len(out),
+        "variants": out
+    }

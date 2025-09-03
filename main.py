@@ -125,17 +125,11 @@ PROBE_MAP = {
     "ewclv1":    "/ewcl/analyze-fasta/ewclv1/health",
     "ewclv1_m":  "/ewcl/analyze-fasta/ewclv1-m/health",
     "ewclv1_p3": "/ewcl/analyze-pdb/ewclv1-p3/health",
-    "ewclv1_c":  "/clinvar/health",
+    "ewclv1_c":  "/clinvar/ewclv1-c/health",  # Updated to match new router
 }
 
 # ── optional raw routers (default OFF to keep public surface small) ─────────
 ENABLE_RAW_ROUTERS = os.environ.get("ENABLE_RAW_ROUTERS", "0") in ("1","true","True")
-
-try:
-    from app.routes.analyze import router as analyze_router  # physics/proxy (optional)
-    app.include_router(analyze_router, prefix="/api", tags=["physics"])
-except Exception as e:
-    log.warning(f"[warn] physics routes not mounted: {e}")
 
 if ENABLE_RAW_ROUTERS:
     try:
@@ -144,12 +138,13 @@ if ENABLE_RAW_ROUTERS:
         log.info("[init] raw EWCL routes enabled")
     except Exception as e:
         log.warning(f"[warn] EWCL raw routes not mounted: {e}")
-    try:
-        from backend.api.routers.clinvar_v73 import router as clinvar_router
-        app.include_router(clinvar_router, prefix="/clinvar", tags=["clinvar-raw"])
-        log.info("[init] raw ClinVar routes enabled")
-    except Exception as e:
-        log.warning(f"[warn] ClinVar raw routes not mounted: {e}")
+    # Removed conflicting clinvar_v73 router - replaced by simplified clinvar_variants
+
+try:
+    from app.routes.analyze import router as analyze_router  # physics/proxy (optional)
+    app.include_router(analyze_router, prefix="/api", tags=["physics"])
+except Exception as e:
+    log.warning(f"[warn] physics routes not mounted: {e}")
 
 try:
     from backend.api.routers.ewclv1_M import router as ewclv1_M_router
@@ -172,13 +167,7 @@ try:
 except Exception as e:
     log.warning(f"[warn] ewclv1p3 router not mounted: {e}")
 
-# Re-enable ewclv1_C router now that features issue is fixed
-try:
-    from backend.api.routers.ewclv1_C import router as ewclv1_C_router
-    app.include_router(ewclv1_C_router)
-    log.info("[init] ewclv1-C router enabled (prefix /clinvar/ewclv1-C)")
-except Exception as e:
-    log.warning(f"[warn] ewclv1-C router not mounted: {e}")
+# Removed old ewclv1_C router - replaced by simplified clinvar_variants router
 
 # ClinVar variants router (always enabled - this is the main ClinVar endpoint)
 try:
