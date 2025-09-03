@@ -245,13 +245,8 @@ def _normalize_residues(obj: Dict[str,Any], fallback_id: str, model_name: str):
     return {"id": rid, "model": model_name, "length": length, "residues": residues}
 
 if __name__ == "__main__":
-    import uvicorn
-    # Robust PORT handling for Railway/Fly.io compatibility
-    port = os.environ.get("PORT")
-    try:
-        port = int(port) if port and port.isdigit() else 8080
-    except (ValueError, TypeError):
-        port = 8080
-    
+    import uvicorn, os
+    # Read PORT from environment, fallback to 8080
+    port = int(os.getenv("PORT", "8080"))
     log.info(f"[startup] Starting server on 0.0.0.0:{port} (git={GIT_SHA})")
     uvicorn.run(app, host="0.0.0.0", port=port)

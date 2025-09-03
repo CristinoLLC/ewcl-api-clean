@@ -38,5 +38,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Use a shell so ${PORT} expands (Railway sets PORT). Fallback to 8080 locally.
-CMD ["sh", "-c", "python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Simple CMD - Python handles PORT reading
+CMD ["python", "main.py"]
