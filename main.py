@@ -113,6 +113,7 @@ os.environ.setdefault("EWCLV1_MODEL_PATH", "/app/models/disorder/ewclv1.pkl")
 os.environ.setdefault("EWCLV1_M_MODEL_PATH", "/app/models/disorder/ewclv1-M.pkl")
 os.environ.setdefault("EWCLV1_P3_MODEL_PATH", "/app/models/pdb/ewclv1p3.pkl")
 os.environ.setdefault("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")  # Uppercase C
+os.environ.setdefault("EWCLV1_C_FEATURES_PATH", "/app/backend/config/ewclv1-c_features.json")  # Fixed path
 
 for k, v in MODEL_ENVS.items():
     if v:

@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Union
 import os, json, joblib, numpy as np, pandas as pd
 from pathlib import Path
 import io
-from backend.models.singleton import get_model_singleton
+from backend.models.model_manager import get_model
 
 router = APIRouter(prefix="/clinvar/ewclv1-C", tags=["clinvar-ewclv1-C"])
 
@@ -21,19 +21,18 @@ EWCLV1_C_FEATURES = [
     "emb_30", "emb_31"
 ]
 
-# Load model from singleton - NO external JSON files
+# Load model from model_manager - NO external JSON files
 MODEL = None
 _MODEL_NAME = "ewclv1-c"
 
 def _load_model():
     global MODEL
     try:
-        singleton = get_model_singleton()
-        MODEL = singleton.get_model("ewclv1-c")
+        MODEL = get_model("ewclv1-c")
         if MODEL:
             print(f"[info] Loaded EWCLv1-C model with {len(EWCLV1_C_FEATURES)} hardcoded features (no JSON)")
         else:
-            print(f"[warn] EWCLv1-C model not found in singleton")
+            print(f"[warn] EWCLv1-C model not found in model_manager")
     except Exception as e:
         print(f"[warn] Failed to load EWCLv1-C model: {e}")
 

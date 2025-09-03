@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import os
 
-# Singleton accessor you already have
-from backend.models.singleton import get_model_singleton
+# Use new model manager instead of singleton
+from backend.models.model_manager import get_model
 
 router = APIRouter(prefix="/clinvar", tags=["clinvar"])
 
@@ -42,11 +42,9 @@ def clinvar_health():
     Load the ClinVar model and report feature count if available.
     No SmartGate, no external features JSON required.
     """
-    ms = get_model_singleton()
     try:
-        # Prefer env var path; fallback to image default
-        path = os.getenv("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")
-        clf = ms.get_model("ewclv1-c")  # Use existing get_model method
+        # Use new model manager
+        clf = get_model("ewclv1-c")
         if clf is None:
             return {"ok": False, "model_name": "ewclv1-c", "loaded": False, "error": "Model not loaded"}
         
@@ -103,12 +101,11 @@ def clinvar_predict(req: ClinVarRequest):
     Deterministic ClinVar prediction using the ewclv1-c model.
     Accepts `variants` and optional explicit `features`.
     """
-    ms = get_model_singleton()
-    path = os.getenv("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")
     try:
-        clf = ms.get_model("ewclv1-c")
+        # Use new model manager
+        clf = get_model("ewclv1-c")
         if clf is None:
-            raise Exception("Model not loaded in singleton")
+            raise Exception("Model not loaded in model manager")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ClinVar model not available: {e}")
 
