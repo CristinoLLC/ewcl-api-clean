@@ -171,5 +171,38 @@ async def analyze_pdb_ewclv1_p3(file: UploadFile = File(...)):
             predictions = model.predict_proba(feature_df)
             if predictions.ndim > 1 and predictions.shape[1] > 1:
                 cl = predictions[:, 1]  # Probability of positive class
-           
+            else:
+                cl = predictions.flatten()
+        else:
+            cl = model.predict(feature_df)
+        
+        # Create response with per-residue scores
+        results = []
+        for i, (residue, score) in enumerate(zip(seq, cl)):
+            results.append({
+                "position": i + 1,
+                "residue": residue,
+                "score": float(score),
+                "prediction": "pathogenic" if score > 0.5 else "benign"
+            })
+        
+        print(f"[ewclv1-p3] Generated {len(results)} predictions")
+        
+        return {
+            "model": _MODEL_NAME,
+            "sequence_length": len(seq),
+            "features_used": len(EWCLV1P3_302_FEATURES),
+            "results": results,
+            "summary": {
+                "mean_score": float(np.mean(cl)),
+                "max_score": float(np.max(cl)),
+                "pathogenic_residues": int(np.sum(cl > 0.5)),
+                "total_residues": len(cl)
+            }
+        }
+    
+    except Exception as e:
+        print(f"[ewclv1-p3] Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
 

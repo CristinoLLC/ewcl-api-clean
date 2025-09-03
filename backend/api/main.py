@@ -7,6 +7,7 @@ from backend.models.model_manager import load_all_models, get_loaded_models  # U
 # Import individual model routers with REAL features (no generic Column_X)
 from backend.api.routers.ewclv1p3 import router as ewclv1p3_router
 from backend.api.routers.ewclv1_M import router as ewclv1m_router
+from backend.api.routers.ewclv1 import router as ewclv1_router
 from backend.api.routers.ewclv1_C import router as ewclv1c_router
 
 try:
@@ -46,6 +47,7 @@ app.add_middleware(
 app.include_router(ewcl_router)  # Legacy bundle-based router
 app.include_router(ewclv1p3_router)  # PDB model with 302 REAL features
 app.include_router(ewclv1m_router)   # Disorder model with 255 REAL features
+app.include_router(ewclv1_router)    # FASTA model with 249 REAL features
 app.include_router(ewclv1c_router)   # ClinVar model with 47 REAL features
 
 if clinvar_router is not None:
@@ -54,7 +56,7 @@ if clinvar_router is not None:
 @app.get("/")
 def root():
     routes = [
-        "/ewcl/health", "/ewcl/predict/ewclv1m", "/ewcl/predict/ewclv1",
+        "/ewcl/health", "/ewcl/predict/ewclv1m", "/ewcl/analyze-fasta/ewclv1",
         "/ewcl/analyze-pdb/ewclv1-p3", "/ewcl/analyze-fasta/ewclv1-m", "/clinvar/ewclv1-C/analyze-variants"
     ]
     if clinvar_router is not None:
@@ -102,6 +104,12 @@ def models_status():
             "real_features": True,  # NO generic Column_X features
             "benchmark_ready": True,  # Ready for Dr. Uversky benchmark
             "individual_models": {
+                "ewclv1": {
+                    "ok": is_loaded("ewclv1"),
+                    "features": 249,
+                    "type": "FASTA",
+                    "endpoint": "/ewcl/analyze-fasta/ewclv1"
+                },
                 "ewclv1-p3": {
                     "ok": is_loaded("ewclv1-p3"),
                     "features": 302,
