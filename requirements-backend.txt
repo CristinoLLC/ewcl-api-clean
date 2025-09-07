@@ -1,9 +1,9 @@
 # Core pins (match training environment - safe versions for sklearn pickles)
 numpy==1.26.4
 pandas==2.0.3
-scikit-learn==1.3.2
+scikit-learn==1.7.0
 scipy==1.11.4
-joblib==1.3.2
+joblib==1.4.2
 biopython==1.83
 tqdm==4.66.1
 pyarrow==14.0.1
@@ -15,7 +15,9 @@ uvicorn[standard]==0.30.6
 pydantic==2.5.3
 pydantic-settings==2.1.0
 python-multipart==0.0.9
+httpx==0.27.0
 
 # Nice-to-haves (optional)
 orjson==3.9.15
 loguru==0.7.2
+cloudpickle==3.0.0

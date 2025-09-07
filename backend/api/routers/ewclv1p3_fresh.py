@@ -761,9 +761,18 @@ def get_model():
     global MODEL
     if MODEL is None:
         path = os.environ.get("EWCLV1_P3_MODEL_PATH")
-        if not path or not Path(path).exists():
-            raise HTTPException(status_code=503, detail="EWCLv1-P3 model not found")
-        MODEL = load_model_forgiving(path)
+        if not path:
+            raise HTTPException(status_code=503, detail="EWCLV1_P3_MODEL_PATH environment variable not set")
+        if not Path(path).exists():
+            raise HTTPException(status_code=503, detail=f"EWCLv1-P3 model file not found at {path}")
+        
+        try:
+            print(f"[ewclv1-p3] Loading model from {path}", flush=True)
+            MODEL = load_model_forgiving(path)
+            print(f"[ewclv1-p3] ✅ Model loaded successfully", flush=True)
+        except Exception as e:
+            print(f"[ewclv1-p3] ❌ Model loading failed: {e}", flush=True)
+            raise HTTPException(status_code=503, detail=f"EWCLv1-P3 model loading failed: {str(e)}")
     return MODEL
 
 # ============================================================================
