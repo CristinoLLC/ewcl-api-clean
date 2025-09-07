@@ -1,2 +1,1 @@
-# Force Railway rebuild - trigger with empty commit
-# This file forces Railway to detect changes and rebuild from scratch
+Railway rebuild trigger Sun Sep  7 19:15:49 EDT 2025
