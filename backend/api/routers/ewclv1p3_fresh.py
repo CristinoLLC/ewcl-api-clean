@@ -853,36 +853,6 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         
         print(f"[ewclv1-p3-fresh] Predictions: min={predictions.min():.3f}, max={predictions.max():.3f}, mean={predictions.mean():.3f}")
         
-        # Build response using new structure with features from DataFrame
-        residues_out = []
-        chain_id = pdb_data["chain"]
-        
-        for i, (residue, pred_score) in enumerate(zip(pdb_data["residues"], predictions)):
-            # Extract features from the already-computed DataFrame
-            hydropathy = _first_present(feature_matrix, i, "hydropathy", "hydropathy_x", "hydropathy_y")
-            charge_pH7 = _first_present(feature_matrix, i, "charge_pH7", "charge_ph7", "charge", "charge_x", "charge_y")
-            curvature = _first_present(feature_matrix, i, "curvature", "curvature_x", "curvature_y", "curv_kappa", "geom_curvature", "backbone_kappa")
-            
-            # Prepare confidence metrics
-            plddt = None
-            bfactor = None
-            if pdb_data["source"] == "alphafold":
-                plddt = float(residue["bfactor"])
-            else:
-                bfactor = float(residue["bfactor"])
-            
-            residues_out.append(PdbResidueOut(
-                chain=chain_id,
-                resi=int(residue["resseq"]),
-                aa=residue["aa"],
-                pdb_cl=float(pred_score),
-                plddt=plddt,
-                bfactor=bfactor,
-                hydropathy=hydropathy,
-                charge_pH7=charge_pH7,
-                curvature=curvature
-            ))
-        
         # Extract PDB ID for metadata fetching
         pdb_id = _maybe_guess_pdb_id(file.filename, raw_bytes)
         
@@ -897,15 +867,54 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             "parser_version": "fresh_complete_implementation"
         }
         
-        # Try to enrich with external metadata (with timeout)
+        # Wait for metadata with timeout
         try:
             external_meta = await asyncio.wait_for(meta_task, timeout=_get_timeout())
             if external_meta:
                 diagnostics.update(external_meta)
-                print(f"[ewclv1-p3-fresh] Enriched with RCSB metadata: {list(external_meta.keys())}")
         except Exception as e:
-            print(f"[ewclv1-p3-fresh] Metadata fetch failed (non-blocking): {e}")
-            # Continue without external metadata
+            pass  # Best effort - continue without metadata
+        
+        # Determine confidence metric type based on RCSB metadata or fallback to parser detection
+        method = diagnostics.get("method", "").upper()
+        is_experimental = any(keyword in method for keyword in ["X-RAY", "ELECTRON", "NMR", "CRYO-EM"])
+        is_alphafold = "ALPHAFOLD" in method or "AF" in method or pdb_data["source"] == "alphafold"
+        
+        # Build response using new structure with features from DataFrame
+        residues_out = []
+        chain_id = pdb_data["chain"]
+        
+        for i, (residue, pred_score) in enumerate(zip(pdb_data["residues"], predictions)):
+            # Extract features from the already-computed DataFrame
+            hydropathy = _first_present(feature_matrix, i, "hydropathy", "hydropathy_x", "hydropathy_y")
+            charge_pH7 = _first_present(feature_matrix, i, "charge_pH7", "charge_ph7", "charge", "charge_x", "charge_y")
+            curvature = _first_present(feature_matrix, i, "curvature", "curvature_x", "curvature_y", "curv_kappa", "geom_curvature", "backbone_kappa")
+            
+            # Prepare confidence metrics based on method detection
+            plddt = None
+            bfactor = None
+            if is_alphafold:
+                plddt = float(residue["bfactor"])
+            elif is_experimental:
+                bfactor = float(residue["bfactor"])
+            else:
+                # Fallback to parser detection
+                if pdb_data["source"] == "alphafold":
+                    plddt = float(residue["bfactor"])
+                else:
+                    bfactor = float(residue["bfactor"])
+            
+            residues_out.append(PdbResidueOut(
+                chain=chain_id,
+                resi=int(residue["resseq"]),
+                aa=residue["aa"],
+                pdb_cl=float(pred_score),
+                plddt=plddt,
+                bfactor=bfactor,
+                hydropathy=hydropathy,
+                charge_pH7=charge_pH7,
+                curvature=curvature
+            ))
         
         # Add local metadata if no external metadata was found
         if not any(k in diagnostics for k in ("method", "resolution_angstrom")):
