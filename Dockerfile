@@ -5,12 +5,9 @@ WORKDIR /app
 ENV PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1 \
     UVICORN_WORKERS=2
 
-# system deps (Biopython/scipy sometimes need build tools + Git LFS)
+# system deps (Biopython/scipy sometimes need build tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential procps curl git git-lfs && rm -rf /var/lib/apt/lists/*
-
-# Install Git LFS
-RUN git lfs install
+    build-essential procps curl && rm -rf /var/lib/apt/lists/*
 
 # install python deps
 COPY requirements.txt .
@@ -20,14 +17,23 @@ RUN pip install -r requirements.txt
 # copy app
 COPY . .
 
-# Pull LFS files to get real model binaries instead of pointer files
-RUN git lfs pull
+# Download model files from GitHub (raw content) to avoid LFS issues
+ARG EWCLV1_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/disorder/ewclv1.pkl
+ARG EWCLV1M_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/disorder/ewclv1-M.pkl
+ARG EWCLV1P3_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/pdb/ewclv1p3.pkl
+ARG EWCLV1C_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/clinvar/ewclv1-C.pkl
 
-# Create model directory and copy entire tree for robustness (avoid per-file COPY fragility)
-RUN mkdir -p /app/models
-COPY models/ /app/models/
-# List copied model artifacts for debugging
-RUN find /app/models -maxdepth 3 -type f -printf "%P\n" | sort
+# Create model directories and download real model files
+RUN mkdir -p /app/models/disorder /app/models/pdb /app/models/clinvar
+
+# Download model files (these are now regular Git objects, not LFS pointers)
+RUN curl -fL "$EWCLV1_MODEL_URL" -o /app/models/disorder/ewclv1.pkl && \
+    curl -fL "$EWCLV1M_MODEL_URL" -o /app/models/disorder/ewclv1-M.pkl && \
+    curl -fL "$EWCLV1P3_MODEL_URL" -o /app/models/pdb/ewclv1p3.pkl && \
+    curl -fL "$EWCLV1C_MODEL_URL" -o /app/models/clinvar/ewclv1-C.pkl || echo "Warning: Some model downloads failed"
+
+# List downloaded model artifacts for debugging
+RUN find /app/models -maxdepth 3 -type f -printf "%P %s\n" | sort
 
 # Set default env vars (can be overridden). Correct names for loader.
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
