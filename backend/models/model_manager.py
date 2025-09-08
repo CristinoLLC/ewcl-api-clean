@@ -60,8 +60,20 @@ def _initialize_models():
             "ewclv1-c-43": "EWCLV1_C_43_MODEL_PATH"  # Add 43-feature ClinVar model
         }
         
+        # Override with hardcoded paths to ensure correct models are loaded
+        hardcoded_paths = {
+            "ewclv1-c": "/app/models/clinvar/C_Full_model.pkl",  # Force use of C_Full_model.pkl
+            "ewclv1-c-43": "/app/models/clinvar/C_43_model.pkl"   # Force use of C_43_model.pkl
+        }
+        
         for model_name, env_var in model_env_mapping.items():
-            model_path = os.environ.get(env_var)
+            # Use hardcoded path if available, otherwise use environment variable
+            if model_name in hardcoded_paths:
+                model_path = hardcoded_paths[model_name]
+                print(f"[model_manager] Using hardcoded path for {model_name}: {model_path}")
+            else:
+                model_path = os.environ.get(env_var)
+            
             if model_path and os.path.exists(model_path):
                 try:
                     model = load_model_forgiving(model_path)
