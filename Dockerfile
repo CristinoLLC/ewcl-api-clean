@@ -21,16 +21,25 @@ COPY . .
 ARG EWCLV1_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/disorder/ewclv1.pkl
 ARG EWCLV1M_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/disorder/ewclv1-M.pkl
 ARG EWCLV1P3_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/pdb/ewclv1p3.pkl
-ARG EWCLV1C_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/clinvar/ewclv1-C.pkl
+ARG EWCLV1C_FULL_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/clinvar/C_Full_model.pkl
+ARG EWCLV1C_43_MODEL_URL=https://github.com/CristinoLLC/ewcl-api-clean/raw/main/models/clinvar/C_43_model.pkl
 
 # Create model directories and download real model files
 RUN mkdir -p /app/models/disorder /app/models/pdb /app/models/clinvar
 
 # Download model files (these are now regular Git objects, not LFS pointers)
-RUN curl -fL "$EWCLV1_MODEL_URL" -o /app/models/disorder/ewclv1.pkl && \
+RUN echo "Downloading model files..." && \
+    curl -fL "$EWCLV1_MODEL_URL" -o /app/models/disorder/ewclv1.pkl && \
+    echo "Downloaded ewclv1.pkl: $(ls -lh /app/models/disorder/ewclv1.pkl)" && \
     curl -fL "$EWCLV1M_MODEL_URL" -o /app/models/disorder/ewclv1-M.pkl && \
+    echo "Downloaded ewclv1-M.pkl: $(ls -lh /app/models/disorder/ewclv1-M.pkl)" && \
     curl -fL "$EWCLV1P3_MODEL_URL" -o /app/models/pdb/ewclv1p3.pkl && \
-    curl -fL "$EWCLV1C_MODEL_URL" -o /app/models/clinvar/ewclv1-C.pkl || echo "Warning: Some model downloads failed"
+    echo "Downloaded ewclv1p3.pkl: $(ls -lh /app/models/pdb/ewclv1p3.pkl)" && \
+    curl -fL "$EWCLV1C_FULL_MODEL_URL" -o /app/models/clinvar/C_Full_model.pkl && \
+    echo "Downloaded C_Full_model.pkl: $(ls -lh /app/models/clinvar/C_Full_model.pkl)" && \
+    curl -fL "$EWCLV1C_43_MODEL_URL" -o /app/models/clinvar/C_43_model.pkl && \
+    echo "Downloaded C_43_model.pkl: $(ls -lh /app/models/clinvar/C_43_model.pkl)" && \
+    echo "All model downloads completed successfully"
 
 # List downloaded model artifacts for debugging
 RUN find /app/models -maxdepth 3 -type f -printf "%P %s\n" | sort
@@ -39,8 +48,8 @@ RUN find /app/models -maxdepth 3 -type f -printf "%P %s\n" | sort
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
     EWCLV1M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl \
     EWCLV1P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl \
-    EWCLV1C_MODEL_PATH=/app/models/clinvar/ewclv1-C.pkl \
-    EWCLV1_C_FEATURES_PATH=/app/models/clinvar/ewclv1-c_features.json \
+    EWCLV1C_MODEL_PATH=/app/models/clinvar/C_Full_model.pkl \
+    EWCLV1_C_43_MODEL_PATH=/app/models/clinvar/C_43_model.pkl \
     MAX_BODY_BYTES=100000000 \
     PORT=8080
 

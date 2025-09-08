@@ -23,7 +23,8 @@ MODEL_PATHS = {
     "ewclv1": "/app/models/disorder/ewclv1.pkl",
     "ewclv1-m": "/app/models/disorder/ewclv1-M.pkl",
     "ewclv1-p3": "/app/models/pdb/ewclv1p3.pkl",
-    "ewclv1-c": "/app/models/clinvar/ewclv1-C.pkl",
+    "ewclv1-c": "/app/models/clinvar/C_Full_model.pkl",  # Full 47-feature model
+    "ewclv1-c-43": "/app/models/clinvar/C_43_model.pkl",  # 43-feature model
 }
 
 # Configuration registry (non-model files)
