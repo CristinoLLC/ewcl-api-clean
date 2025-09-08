@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import os, joblib
 
-router = APIRouter(prefix="/clinvar", tags=["clinvar"])
+router = APIRouter(prefix="/clinvar-simple", tags=["clinvar-simple"])
 
 # --- Model & Feature Definitions ---
 _MODEL_NAME = "ewclv1-c"

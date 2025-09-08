@@ -60,7 +60,7 @@ def root():
     routes = [
         "/ewcl/health", "/ewcl/predict/ewclv1m", "/ewcl/analyze-fasta/ewclv1",
         "/ewcl/analyze-pdb/ewclv1-p3", "/ewcl/analyze-fasta/ewclv1-m", 
-        "/clinvar/ewclv1-C/analyze-variants", "/clinvar/analyze-variants"
+        "/clinvar/ewclv1-C/analyze-variants", "/clinvar-simple/analyze-variants"
     ]
     if clinvar_router is not None:
         routes += ["/clinvar/v7_3/health", "/clinvar/v7_3/predict", "/clinvar/v7_3/predict_gated"]
