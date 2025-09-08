@@ -804,7 +804,7 @@ def _extract_local_metadata(pdb_data: dict, residues: list) -> dict:
     
     # Add pLDDT summary if available
     if pdb_data["source"] == "alphafold":
-        plddts = [r.get("plddt") for r in residues if isinstance(r.get("plddt"), (int, float))]
+        plddts = [r.plddt for r in residues if r.plddt is not None and isinstance(r.plddt, (int, float))]
         if plddts:
             meta.update({
                 "plddt_mean": float(stats.fmean(plddts)),
@@ -816,7 +816,7 @@ def _extract_local_metadata(pdb_data: dict, residues: list) -> dict:
     
     # Add bfactor summary for X-ray structures
     elif pdb_data["source"] == "xray":
-        bfactors = [r.get("bfactor") for r in residues if isinstance(r.get("bfactor"), (int, float))]
+        bfactors = [r.bfactor for r in residues if r.bfactor is not None and isinstance(r.bfactor, (int, float))]
         if bfactors:
             meta.update({
                 "bfactor_mean": float(stats.fmean(bfactors)),
