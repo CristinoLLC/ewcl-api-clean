@@ -760,19 +760,23 @@ def get_model():
     """Load and cache the EWCLv1-P3 model."""
     global MODEL
     if MODEL is None:
-        path = os.environ.get("EWCLV1_P3_MODEL_PATH")
-        if not path:
-            raise HTTPException(status_code=503, detail="EWCLV1_P3_MODEL_PATH environment variable not set")
+        import warnings
+        from sklearn.exceptions import InconsistentVersionWarning
+        
+        path = os.environ.get("EWCLV1_P3_MODEL_PATH", "/app/models/pdb/ewclv1p3.pkl")
         if not Path(path).exists():
-            raise HTTPException(status_code=503, detail=f"EWCLv1-P3 model file not found at {path}")
+            raise HTTPException(status_code=503, detail=f"PDB model not found at {path}")
         
         try:
             print(f"[ewclv1-p3] Loading model from {path}", flush=True)
-            MODEL = load_model_forgiving(path)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+                MODEL = load_model_forgiving(path)
             print(f"[ewclv1-p3] ✅ Model loaded successfully", flush=True)
         except Exception as e:
             print(f"[ewclv1-p3] ❌ Model loading failed: {e}", flush=True)
-            raise HTTPException(status_code=503, detail=f"EWCLv1-P3 model loading failed: {str(e)}")
+            # Surface the signature we use in the frontend to show a friendly message
+            raise HTTPException(status_code=503, detail=f"All loaders failed: {e}")
     return MODEL
 
 # ============================================================================

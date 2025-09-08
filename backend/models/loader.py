@@ -1,4 +1,5 @@
-import os, pickle, joblib, hashlib, json, sys, traceback
+from __future__ import annotations
+import os, pickle, joblib, hashlib, json, sys, traceback, io
 from pathlib import Path
 
 def _hash(path, algo="sha256", max_mb=16):
@@ -13,6 +14,16 @@ def _hash(path, algo="sha256", max_mb=16):
     return f"{algo}:{h.hexdigest()} (first {max_mb}MB)"
 
 def load_model_forgiving(path: str):
+    """
+    Try joblib -> cloudpickle -> pickle, all in-memory.
+    Raises RuntimeError("All loaders failed: ...") if none succeed.
+    """
+    import joblib, pickle
+    try:
+        import cloudpickle  # ensure import error surfaces early if not installed
+    except Exception:
+        cloudpickle = None
+
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"model file not found: {path}")
@@ -23,45 +34,36 @@ def load_model_forgiving(path: str):
     print(f"[loader] py={sys.version.split()[0]} "
           f"sklearn={_try_ver('sklearn')} joblib={_try_ver('joblib')} numpy={_try_ver('numpy')}", flush=True)
 
-    # Try joblib (no mmap) → pickle → cloudpickle
+    with open(path, "rb") as f:
+        blob = f.read()
+
+    last_err = None
+    # 1) joblib
     try:
         print(f"[loader] Attempting joblib.load for {path}", flush=True)
-        return joblib.load(path, mmap_mode=None)
-    except Exception as e1:
-        print(f"[loader] joblib.load failed: {repr(e1)}", flush=True)
-        print(f"[loader] Joblib error details: {str(e1)}", flush=True)
-        
+        return joblib.load(io.BytesIO(blob))
+    except Exception as e:
+        print(f"[loader] joblib.load failed: {repr(e)}", flush=True)
+        last_err = e
+
+    # 2) cloudpickle
+    if cloudpickle is not None:
         try:
-            print(f"[loader] Attempting pickle.load for {path}", flush=True)
-            with open(path, "rb") as f:
-                return pickle.load(f)
-        except Exception as e2:
-            print(f"[loader] pickle.load failed: {repr(e2)}", flush=True)
-            print(f"[loader] Pickle error details: {str(e2)}", flush=True)
-            
-            try:
-                print(f"[loader] Attempting cloudpickle.load for {path}", flush=True)
-                import cloudpickle as cp
-                with open(path, "rb") as f:
-                    return cp.load(f)
-            except Exception as e3:
-                print(f"[loader] cloudpickle.load failed: {repr(e3)}", flush=True)
-                print(f"[loader] Cloudpickle error details: {str(e3)}", flush=True)
-                
-                # Enhanced error message with more context
-                error_msg = (
-                    f"All loaders failed for {path}:\n"
-                    f"  - joblib: {e1!r}\n"
-                    f"  - pickle: {e2!r}\n"
-                    f"  - cloudpickle: {e3!r}\n"
-                    f"File size: {size_mb:.2f} MB\n"
-                    f"File hash: {_hash(path)}\n"
-                    f"Python: {sys.version}\n"
-                    f"sklearn: {_try_ver('sklearn')}\n"
-                    f"joblib: {_try_ver('joblib')}\n"
-                    f"numpy: {_try_ver('numpy')}"
-                )
-                raise RuntimeError(error_msg)
+            print(f"[loader] Attempting cloudpickle.loads for {path}", flush=True)
+            return cloudpickle.loads(blob)
+        except Exception as e:
+            print(f"[loader] cloudpickle.loads failed: {repr(e)}", flush=True)
+            last_err = e
+
+    # 3) stdlib pickle
+    try:
+        print(f"[loader] Attempting pickle.loads for {path}", flush=True)
+        return pickle.loads(blob)
+    except Exception as e:
+        print(f"[loader] pickle.loads failed: {repr(e)}", flush=True)
+        last_err = e
+
+    raise RuntimeError(f"All loaders failed: {last_err}")
 
 def _try_ver(mod):
     try:
