@@ -986,6 +986,10 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             else:  # ref_signal == "bfactor"
                 bfactor = float(ref_values[i])
             
+            # Debug logging for first few residues
+            if i < 3:
+                print(f"[ewclv1-p3-fresh] Residue {i}: ref_signal={ref_signal}, ref_value={ref_values[i]:.1f}, plddt={plddt}, bfactor={bfactor}")
+            
             residues_out.append(PdbResidueOut(
                 chain=chain_id,
                 resi=int(residue["resseq"]),
