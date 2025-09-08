@@ -707,6 +707,94 @@ def _num(x):
     except Exception:
         return None
 
+def detect_ref_mode_from_cif(cif_data: dict) -> str | None:
+    """Detect reference signal type from mmCIF data."""
+    # 1) AF mmCIF QA table present?
+    if '_ma_qa_metric_local.id' in cif_data or 'ma_qa_metric_local' in cif_data:
+        return 'plddt'
+    
+    # 2) Experimental method?
+    method = None
+    for key in ('exptl.method', '_exptl.method', 'exptl'):
+        if key in cif_data:
+            method = str(cif_data[key]).upper()
+            break
+    
+    if method:
+        if any(x in method for x in ('X-RAY', 'ELECTRON', 'NEUTRON')):
+            return 'bfactor'
+        if any(x in method for x in ('ALPHAFOLD', 'MODEL', 'COMPUT')):
+            return 'plddt'
+    return None
+
+def detect_ref_mode_from_pdb_header(lines: list[str]) -> str | None:
+    """Detect reference signal type from PDB header."""
+    expdta = next((l for l in lines if l.startswith('EXPDTA')), None)
+    if expdta:
+        method = expdta.upper()
+        if any(x in method for x in ('X-RAY', 'ELECTRON', 'NEUTRON')):
+            return 'bfactor'
+        if any(x in method for x in ('ALPHAFOLD', 'MODEL', 'COMPUT')):
+            return 'plddt'
+    return None
+
+def heuristic_detect(values: list[float]) -> str:
+    """Heuristic detection based on value ranges."""
+    vals = [v for v in values if v is not None and not np.isnan(v)]
+    if not vals:
+        return 'bfactor'
+    
+    mn, mx = min(vals), max(vals)
+    median_val = np.median(vals)
+    
+    # pLDDT typically has values in [0, 100] with median around 50-90
+    # B-factors typically have values > 0 with median around 10-50
+    if 0 <= mn and mx <= 100 and median_val >= 50:
+        return 'plddt'
+    return 'bfactor'
+
+def extract_ref_signal(pdb_data: dict, raw_bytes: bytes) -> tuple[str, list[float]]:
+    """Extract reference signal (pLDDT or B-factor) with robust detection."""
+    text = raw_bytes.decode("utf-8", errors="ignore")
+    lines = text.splitlines()
+    
+    # Collect B-factor values from atoms
+    atom_bfactors = []
+    for line in lines:
+        if line.startswith("ATOM") and line[12:16].strip() == "CA":
+            try:
+                bfactor = float(line[60:66]) if len(line) >= 66 else 0.0
+                atom_bfactors.append(bfactor)
+            except (ValueError, IndexError):
+                continue
+    
+    # Detection logic
+    mode = None
+    
+    # 1) Check PDB header first
+    mode = detect_ref_mode_from_pdb_header(lines)
+    
+    # 2) Check for AlphaFold patterns in header
+    if mode is None:
+        header = "\n".join(lines[:400]).upper()
+        if any(pattern in header for pattern in AF_PATTERNS):
+            mode = 'plddt'
+        elif "NMR" in header:
+            mode = 'bfactor'
+    
+    # 3) Heuristic fallback
+    if mode is None:
+        mode = heuristic_detect(atom_bfactors)
+    
+    # Convert atom-level to residue-level (average per residue)
+    residue_vals = []
+    for residue in pdb_data["residues"]:
+        # For now, use the bfactor from the residue data
+        # In a full implementation, we'd average all atoms per residue
+        residue_vals.append(residue["bfactor"])
+    
+    return mode, residue_vals
+
 def _extract_local_metadata(pdb_data: dict, residues: list) -> dict:
     """Extract metadata from local PDB data and pLDDT values."""
     meta = {
@@ -875,12 +963,10 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         except Exception as e:
             pass  # Best effort - continue without metadata
         
-        # Determine confidence metric type based on RCSB metadata or fallback to parser detection
-        method = diagnostics.get("method", "").upper()
-        is_experimental = any(keyword in method for keyword in ["X-RAY", "ELECTRON", "NMR", "CRYO-EM"])
-        is_alphafold = "ALPHAFOLD" in method or "AF" in method or pdb_data["source"] == "alphafold"
+        # Use robust reference signal detection
+        ref_signal, ref_values = extract_ref_signal(pdb_data, raw_bytes)
         
-        print(f"[ewclv1-p3-fresh] Method detection: '{method}' -> experimental={is_experimental}, alphafold={is_alphafold}, parser_source={pdb_data['source']}")
+        print(f"[ewclv1-p3-fresh] Reference signal detection: '{ref_signal}' (values: min={min(ref_values):.1f}, max={max(ref_values):.1f})")
         
         # Build response using new structure with features from DataFrame
         residues_out = []
@@ -892,19 +978,13 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             charge_pH7 = _first_present(feature_matrix, i, "charge_pH7", "charge_ph7", "charge", "charge_x", "charge_y")
             curvature = _first_present(feature_matrix, i, "curvature", "curvature_x", "curvature_y", "curv_kappa", "geom_curvature", "backbone_kappa")
             
-            # Prepare confidence metrics based on method detection
+            # Prepare confidence metrics based on robust detection
             plddt = None
             bfactor = None
-            if is_alphafold:
-                plddt = float(residue["bfactor"])
-            elif is_experimental:
-                bfactor = float(residue["bfactor"])
-            else:
-                # Fallback to parser detection
-                if pdb_data["source"] == "alphafold":
-                    plddt = float(residue["bfactor"])
-                else:
-                    bfactor = float(residue["bfactor"])
+            if ref_signal == "plddt":
+                plddt = float(ref_values[i])
+            else:  # ref_signal == "bfactor"
+                bfactor = float(ref_values[i])
             
             residues_out.append(PdbResidueOut(
                 chain=chain_id,
@@ -923,6 +1003,9 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             local_meta = _extract_local_metadata(pdb_data, residues_out)
             diagnostics.update(local_meta)
             print(f"[ewclv1-p3-fresh] Added local metadata: {list(local_meta.keys())}")
+        
+        # Add reference signal type to diagnostics
+        diagnostics["ref_signal"] = ref_signal
         
         return PdbOut(
             id=file.filename or "unknown.pdb",
