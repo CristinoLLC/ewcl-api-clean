@@ -5,6 +5,19 @@ import io
 from Bio.PDB import PDBParser
 from scipy.stats import entropy as shannon_entropy
 
+# Standard 3-letter to 1-letter amino acid mapping
+AA3_TO_1 = {
+    "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
+    "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",
+    "LEU": "L", "LYS": "K", "MET": "M", "PHE": "F", "PRO": "P",
+    "SER": "S", "THR": "T", "TRP": "W", "TYR": "Y", "VAL": "V",
+    # Extended mapping for modified residues
+    "MSE": "M", "SEC": "C", "PYL": "K", "HYP": "P",
+    "SEP": "S", "TPO": "T", "PTR": "Y", "CSO": "C", 
+    "CME": "C", "KCX": "K", "MLZ": "K", "FME": "M",
+    "UNK": "X", "ASX": "B", "GLX": "Z"
+}
+
 
 def _window_entropy(values: np.ndarray, win: int = 9, bins: int = 10) -> np.ndarray:
     values = np.asarray(values, float)
@@ -48,10 +61,15 @@ def parser_pdb_p3(pdb_bytes: bytes) -> pd.DataFrame:
                 try:
                     ca = res["CA"]
                     b = float(ca.get_bfactor())
+                    # Convert 3-letter residue name to 1-letter amino acid code
+                    resname = res.get_resname().strip().upper()
+                    aa_single = AA3_TO_1.get(resname, "X")
+                    
                     rows.append({
                         "chain": chain.id,
                         "residue_index": int(res.id[1]),
-                        "aa": res.get_resname(),
+                        "aa": aa_single,  # Now returns single-letter codes
+                        "resname": resname,  # Keep original for debugging
                         "support": b,
                         "is_af": is_af,
                         "is_nmr": is_nmr,

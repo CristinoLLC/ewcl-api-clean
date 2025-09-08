@@ -1,0 +1,48 @@
+Feature_Name,Category,Type,Description,ClinVar_v7_3,EWCLv1C,Range,Calculation
+position,sequence,integer,Absolute amino acid position in protein sequence,False,True,1 to sequence_length,Direct input
+sequence_length,sequence,integer,Total length of the protein sequence,True,True,positive integer,Direct input
+position_ratio,sequence,float,Position as ratio of total length (0-1),True,True,0.0 to 1.0,position / sequence_length
+delta_hydropathy,delta,float,Change in hydropathy index (Kyte-Doolittle scale),True,True,~-9.0 to +9.0,alt_hydropathy - ref_hydropathy
+delta_charge,delta,float,Change in charge at pH 7,True,True,-2.0 to +2.0,alt_charge - ref_charge
+delta_helix_prop,delta,float,Change in helix propensity (Chou-Fasman method),True,True,~-2.0 to +2.0,alt_helix_prop - ref_helix_prop
+delta_sheet_prop,delta,float,Change in sheet propensity (Chou-Fasman method),True,True,~-2.0 to +2.0,alt_sheet_prop - ref_sheet_prop
+delta_entropy_w5,delta,float,Change in local entropy (window=5 residues),True,True,~-2.0 to +2.0,mut_entropy_w5 - ref_entropy_w5
+delta_entropy_w11,delta,float,Change in local entropy (window=11 residues),True,True,~-2.0 to +2.0,mut_entropy_w11 - ref_entropy_w11
+delta_entropy_w25,delta,float,Change in local entropy (window=25 residues),True,True,~-2.0 to +2.0,mut_entropy_w25 - ref_entropy_w25
+ewcl_hydropathy,ewcl,float,EWCL-predicted hydropathy at mutation position,False,True,varies,EWCL model prediction
+ewcl_charge_pH7,ewcl,float,EWCL-predicted charge at pH 7 at mutation position,False,True,varies,EWCL model prediction
+ewcl_entropy_w5,ewcl,float,EWCL-predicted entropy (window=5) at mutation position,False,True,varies,EWCL model prediction
+ewcl_entropy_w11,ewcl,float,EWCL-predicted entropy (window=11) at mutation position,False,True,varies,EWCL model prediction
+emb_0,embedding,float,ProtT5 embedding dimension 0,True,True,varies,ProtT5 model output
+emb_1,embedding,float,ProtT5 embedding dimension 1,True,True,varies,ProtT5 model output
+emb_2,embedding,float,ProtT5 embedding dimension 2,True,True,varies,ProtT5 model output
+emb_3,embedding,float,ProtT5 embedding dimension 3,True,True,varies,ProtT5 model output
+emb_4,embedding,float,ProtT5 embedding dimension 4,True,True,varies,ProtT5 model output
+emb_5,embedding,float,ProtT5 embedding dimension 5,True,True,varies,ProtT5 model output
+emb_6,embedding,float,ProtT5 embedding dimension 6,True,True,varies,ProtT5 model output
+emb_7,embedding,float,ProtT5 embedding dimension 7,True,True,varies,ProtT5 model output
+emb_8,embedding,float,ProtT5 embedding dimension 8,True,True,varies,ProtT5 model output
+emb_9,embedding,float,ProtT5 embedding dimension 9,True,True,varies,ProtT5 model output
+emb_10,embedding,float,ProtT5 embedding dimension 10,True,True,varies,ProtT5 model output
+emb_11,embedding,float,ProtT5 embedding dimension 11,True,True,varies,ProtT5 model output
+emb_12,embedding,float,ProtT5 embedding dimension 12,True,True,varies,ProtT5 model output
+emb_13,embedding,float,ProtT5 embedding dimension 13,True,True,varies,ProtT5 model output
+emb_14,embedding,float,ProtT5 embedding dimension 14,True,True,varies,ProtT5 model output
+emb_15,embedding,float,ProtT5 embedding dimension 15,True,True,varies,ProtT5 model output
+emb_16,embedding,float,ProtT5 embedding dimension 16,True,True,varies,ProtT5 model output
+emb_17,embedding,float,ProtT5 embedding dimension 17,True,True,varies,ProtT5 model output
+emb_18,embedding,float,ProtT5 embedding dimension 18,True,True,varies,ProtT5 model output
+emb_19,embedding,float,ProtT5 embedding dimension 19,True,True,varies,ProtT5 model output
+emb_20,embedding,float,ProtT5 embedding dimension 20,True,True,varies,ProtT5 model output
+emb_21,embedding,float,ProtT5 embedding dimension 21,True,True,varies,ProtT5 model output
+emb_22,embedding,float,ProtT5 embedding dimension 22,True,True,varies,ProtT5 model output
+emb_23,embedding,float,ProtT5 embedding dimension 23,True,True,varies,ProtT5 model output
+emb_24,embedding,float,ProtT5 embedding dimension 24,True,True,varies,ProtT5 model output
+emb_25,embedding,float,ProtT5 embedding dimension 25,True,True,varies,ProtT5 model output
+emb_26,embedding,float,ProtT5 embedding dimension 26,True,True,varies,ProtT5 model output
+emb_27,embedding,float,ProtT5 embedding dimension 27,True,True,varies,ProtT5 model output
+emb_28,embedding,float,ProtT5 embedding dimension 28,True,True,varies,ProtT5 model output
+emb_29,embedding,float,ProtT5 embedding dimension 29,True,True,varies,ProtT5 model output
+emb_30,embedding,float,ProtT5 embedding dimension 30,True,True,varies,ProtT5 model output
+emb_31,embedding,float,ProtT5 embedding dimension 31,True,True,varies,ProtT5 model output
+has_embeddings,metadata,binary,Flag indicating if ProtT5 embeddings are available,True,True,0 or 1,Embedding availability check

@@ -5,10 +5,10 @@ from backend.api.router import router as ewcl_router
 from backend.models.model_manager import load_all_models, get_loaded_models  # Use new model manager
 
 # Import individual model routers with REAL features (no generic Column_X)
-from backend.api.routers.ewclv1p3 import router as ewclv1p3_router
+from backend.api.routers.ewclv1p3_fresh import router as ewclv1p3_router  # Fresh implementation with all 302 features
 from backend.api.routers.ewclv1_M import router as ewclv1m_router
 from backend.api.routers.ewclv1 import router as ewclv1_router
-from backend.api.routers.ewclv1_C import router as ewclv1c_router
+from backend.api.routers.ewclv1_C import router as ewclv1c_router, EWCLV1_C_FEATURES
 
 try:
     from backend.api.routers.clinvar_v73 import router as clinvar_router
@@ -141,5 +141,61 @@ def models_status():
         }
     except Exception as e:
         return {"error": str(e), "loaded_models": []}
+
+@app.get("/features")
+def get_all_features():
+    """Get actual feature names for all EWCL models."""
+    try:
+        # Import feature lists from fresh router implementation
+        from backend.api.routers.ewclv1p3_fresh import FEATURE_NAMES as EWCLV1_P3_FEATURES
+        
+        # Use hardcoded feature counts since parsers are being removed
+        ewclv1_features = ["hydropathy", "charge", "flexibility", "secondary_structure"] # 249 features total
+        ewclv1m_features = ["sequence_properties", "composition", "flexibility", "pssm"] # 255 features total
+
+        return {
+            "models": {
+                "ewclv1": {
+                    "endpoint": "/ewcl/analyze-fasta/ewclv1",
+                    "description": "Protein disorder prediction from FASTA sequences",
+                    "feature_count": 249,
+                    "features": ["Feature extraction handled by router"],
+                    "note": "Parsers removed - features computed directly in router"
+                },
+                "ewclv1-m": {
+                    "endpoint": "/ewcl/analyze-fasta/ewclv1-m", 
+                    "description": "Enhanced disorder prediction with PSSM features",
+                    "feature_count": 255,
+                    "features": ["Feature extraction handled by router"],
+                    "note": "Parsers removed - features computed directly in router"
+                },
+                "ewclv1-p3": {
+                    "endpoint": "/ewcl/analyze-pdb/ewclv1-p3",
+                    "description": "PDB structure analysis with FRESH 302 features implementation", 
+                    "feature_count": len(EWCLV1_P3_FEATURES),
+                    "features": EWCLV1_P3_FEATURES[:10] + ["..."],
+                    "all_features": EWCLV1_P3_FEATURES,
+                    "implementation": "fresh_complete_feature_engineering"
+                },
+                "ewclv1-c": {
+                    "endpoint": "/clinvar/ewclv1-C/analyze-variants",
+                    "description": "ClinVar variant pathogenicity prediction",
+                    "feature_count": len(EWCLV1_C_FEATURES), 
+                    "features": EWCLV1_C_FEATURES,
+                    "all_features": EWCLV1_C_FEATURES
+                }
+            },
+            "summary": {
+                "total_models": 4,
+                "ewclv1_features": 249,
+                "ewclv1m_features": 255, 
+                "ewclv1p3_features": len(EWCLV1_P3_FEATURES),
+                "ewclv1c_features": len(EWCLV1_C_FEATURES),
+                "note": "EWCLv1-P3 now uses FRESH implementation with complete feature engineering",
+                "fresh_p3_parser": True
+            }
+        }
+    except Exception as e:
+        return {"error": f"Failed to load feature information: {str(e)}"}
 
 

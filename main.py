@@ -106,13 +106,15 @@ MODEL_ENVS = {
     "ewclv1_m":  os.environ.get("EWCLV1_M_MODEL_PATH"),
     "ewclv1_p3": os.environ.get("EWCLV1_P3_MODEL_PATH"),
     "ewclv1_c":  os.environ.get("EWCLV1_C_MODEL_PATH"),
+    "ewclv1_c_43": os.environ.get("EWCLV1_C_43_MODEL_PATH"),  # Add 43-feature model
 }
 
-# Set default model paths with correct uppercase C filename
+# Set default model paths with correct model filenames
 os.environ.setdefault("EWCLV1_MODEL_PATH", "/app/models/disorder/ewclv1.pkl")
 os.environ.setdefault("EWCLV1_M_MODEL_PATH", "/app/models/disorder/ewclv1-M.pkl")
 os.environ.setdefault("EWCLV1_P3_MODEL_PATH", "/app/models/pdb/ewclv1p3.pkl")
-os.environ.setdefault("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/ewclv1-C.pkl")  # Uppercase C
+os.environ.setdefault("EWCLV1_C_MODEL_PATH", "/app/models/clinvar/C_Full_model.pkl")  # 47-feature model
+os.environ.setdefault("EWCLV1_C_43_MODEL_PATH", "/app/models/clinvar/C_43_model.pkl")  # 43-feature model
 
 for k, v in MODEL_ENVS.items():
     if v:
@@ -120,10 +122,10 @@ for k, v in MODEL_ENVS.items():
 
 # Public route slugs + health endpoints (internal probes)
 PROBE_MAP = {
-    "ewclv1":    "/ewcl/analyze-fasta/ewclv1/health",
-    "ewclv1_m":  "/ewcl/analyze-fasta/ewclv1-m/health",
-    "ewclv1_p3": "/ewcl/analyze-pdb/ewclv1-p3/health",
-    "ewclv1_c":  "/clinvar/ewclv1-C/health",  # Fixed case to match router prefix
+    "disorder":  "/disorder/health",          # Privacy-friendly disorder endpoint
+    "ewclv1_m":  "/ewcl/analyze-fasta/ewclv1-m/health",  # Keep M model with original path for now
+    "ewclv1_p3": "/ewcl/analyze-pdb/ewclv1-p3/health",   # Keep PDB with original path for now
+    "ewclv1_c":  "/clinvar/health",          # Privacy-friendly ClinVar endpoint
 }
 
 # ── optional raw routers (default OFF to keep public surface small) ─────────
@@ -159,11 +161,11 @@ except Exception as e:
     log.warning(f"[warn] ewclv1 router not mounted: {e}")
 
 try:
-    from backend.api.routers.ewclv1p3 import router as ewclv1p3_router
+    from backend.api.routers.ewclv1p3_fresh import router as ewclv1p3_router
     app.include_router(ewclv1p3_router)
-    log.info("[init] ewclv1p3 router enabled")
+    log.info("[init] ewclv1p3-fresh router enabled")
 except Exception as e:
-    log.warning(f"[warn] ewclv1p3 router not mounted: {e}")
+    log.warning(f"[warn] ewclv1p3-fresh router not mounted: {e}")
 
 # ── ewcl-v1-c (clinvar) router ───────────────────────────────────────────────
 # This model has its own feature extraction logic, so it's managed separately.
@@ -172,9 +174,19 @@ if ENABLE_EWCLV1_C_ROUTER:
     try:
         from backend.api.routers.ewclv1_C import router as clinvar_router
         app.include_router(clinvar_router)
-        log.info("[init] ClinVar variants router enabled")
+        log.info("[init] ClinVar variants router (47-feature) enabled")
     except ImportError as e:
         log.warning(f"[init] Could not import ClinVar router: {e}")
+
+# ── ewcl-v1-c-43 (clinvar 43-feature) router ────────────────────────────────
+ENABLE_EWCLV1_C_43_ROUTER = os.environ.get("ENABLE_EWCLV1_C_43_ROUTER", "1") in ("1", "true", "True")
+if ENABLE_EWCLV1_C_43_ROUTER:
+    try:
+        from backend.api.routers.ewclv1_C_43 import router as clinvar_43_router
+        app.include_router(clinvar_43_router)
+        log.info("[init] ClinVar variants router (43-feature) enabled")
+    except ImportError as e:
+        log.warning(f"[init] Could not import ClinVar 43-feature router: {e}")
 
 # ClinVar variants router (always enabled - this is the main ClinVar endpoint)
 try:
@@ -233,7 +245,13 @@ async def models():
                     r = await c.get(health_path)
                     if r.status_code == 200:
                         j = r.json()
-                        if j.get("ok", True) and j.get("loaded", False):
+                        # Check multiple possible indicators that a model is loaded
+                        is_loaded = (
+                            j.get("loaded", False) or 
+                            j.get("model_loaded", False) or 
+                            j.get("status") == "healthy"
+                        )
+                        if j.get("ok", True) and is_loaded:
                             loaded.append(key)
                         if key == "ewclv1_c":
                             info["clinvar_models"]["ewclv1c"] = j

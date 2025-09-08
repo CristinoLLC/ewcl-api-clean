@@ -1,0 +1,227 @@
+{
+  "model_comparison": {
+    "clinvar_v7_3": {
+      "total_features": 42,
+      "description": "ClinVar pathogenicity predictor v7.3",
+      "key_characteristics": [
+        "Excludes absolute position",
+        "Focuses on relative position (position_ratio)",
+        "Uses delta features for mutation impact",
+        "Includes ProtT5 embeddings for protein context",
+        "No EWCL disorder predictions"
+      ]
+    },
+    "ewclv1c": {
+      "total_features": 50,
+      "description": "EWCLv1C pathogenicity predictor with EWCL integration",
+      "key_characteristics": [
+        "Includes absolute position",
+        "Uses both absolute and relative position",
+        "Same delta features as v7_3",
+        "Same ProtT5 embeddings as v7_3",
+        "4 additional EWCL disorder prediction features",
+        "Combines mutation impact with local disorder context"
+      ]
+    },
+    "relationship": "EWCLv1C = ClinVar v7_3 + position + 4 EWCL features"
+  },
+  "feature_categories": {
+    "sequence_features": {
+      "description": "Basic sequence-level properties",
+      "features": {
+        "position": {
+          "type": "integer",
+          "description": "Absolute amino acid position in protein sequence",
+          "clinvar_v7_3": false,
+          "ewclv1c": true,
+          "range": "1 to sequence_length"
+        },
+        "sequence_length": {
+          "type": "integer",
+          "description": "Total length of the protein sequence",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "positive integer"
+        },
+        "position_ratio": {
+          "type": "float",
+          "description": "Position as ratio of total length (0-1)",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "0.0 to 1.0"
+        }
+      }
+    },
+    "delta_features": {
+      "description": "Changes in biophysical properties caused by mutation",
+      "features": {
+        "delta_hydropathy": {
+          "type": "float",
+          "description": "Change in hydropathy index (Kyte-Doolittle scale)",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "~-9.0 to +9.0",
+          "calculation": "alt_hydropathy - ref_hydropathy"
+        },
+        "delta_charge": {
+          "type": "float",
+          "description": "Change in charge at pH 7",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "-2.0 to +2.0",
+          "calculation": "alt_charge - ref_charge"
+        },
+        "delta_helix_prop": {
+          "type": "float",
+          "description": "Change in helix propensity (Chou-Fasman method)",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "~-2.0 to +2.0",
+          "calculation": "alt_helix_prop - ref_helix_prop"
+        },
+        "delta_sheet_prop": {
+          "type": "float",
+          "description": "Change in sheet propensity (Chou-Fasman method)",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "~-2.0 to +2.0",
+          "calculation": "alt_sheet_prop - ref_sheet_prop"
+        },
+        "delta_entropy_w5": {
+          "type": "float",
+          "description": "Change in local entropy (window=5 residues)",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "~-2.0 to +2.0",
+          "calculation": "mut_entropy_w5 - ref_entropy_w5"
+        },
+        "delta_entropy_w11": {
+          "type": "float",
+          "description": "Change in local entropy (window=11 residues)",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "~-2.0 to +2.0",
+          "calculation": "mut_entropy_w11 - ref_entropy_w11"
+        },
+        "delta_entropy_w25": {
+          "type": "float",
+          "description": "Change in local entropy (window=25 residues)",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "range": "~-2.0 to +2.0",
+          "calculation": "mut_entropy_w25 - ref_entropy_w25"
+        }
+      }
+    },
+    "ewcl_features": {
+      "description": "Direct EWCL disorder predictions at mutation position (EWCLv1C only)",
+      "features": {
+        "ewcl_hydropathy": {
+          "type": "float",
+          "description": "EWCL-predicted hydropathy at mutation position",
+          "clinvar_v7_3": false,
+          "ewclv1c": true,
+          "range": "varies",
+          "source": "EWCL model prediction"
+        },
+        "ewcl_charge_pH7": {
+          "type": "float",
+          "description": "EWCL-predicted charge at pH 7 at mutation position",
+          "clinvar_v7_3": false,
+          "ewclv1c": true,
+          "range": "varies",
+          "source": "EWCL model prediction"
+        },
+        "ewcl_entropy_w5": {
+          "type": "float",
+          "description": "EWCL-predicted entropy (window=5) at mutation position",
+          "clinvar_v7_3": false,
+          "ewclv1c": true,
+          "range": "varies",
+          "source": "EWCL model prediction"
+        },
+        "ewcl_entropy_w11": {
+          "type": "float",
+          "description": "EWCL-predicted entropy (window=11) at mutation position",
+          "clinvar_v7_3": false,
+          "ewclv1c": true,
+          "range": "varies",
+          "source": "EWCL model prediction"
+        }
+      }
+    },
+    "embedding_features": {
+      "description": "ProtT5 protein language model embeddings",
+      "features": {
+        "emb_0_to_emb_31": {
+          "type": "float",
+          "description": "32-dimensional ProtT5 protein language model embeddings",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "dimensions": 32,
+          "range": "varies by dimension",
+          "purpose": "Capture evolutionary and functional relationships"
+        }
+      }
+    },
+    "metadata_features": {
+      "description": "Model metadata and flags",
+      "features": {
+        "has_embeddings": {
+          "type": "binary",
+          "description": "Flag indicating if ProtT5 embeddings are available",
+          "clinvar_v7_3": true,
+          "ewclv1c": true,
+          "values": [0, 1],
+          "purpose": "Indicate embedding availability"
+        }
+      }
+    }
+  },
+  "input_requirements": {
+    "required_fields": [
+      "uniprot_id",
+      "position",
+      "ref_aa",
+      "alt_aa"
+    ],
+    "optional_fields": [
+      "gene_symbol",
+      "transcript_id"
+    ],
+    "preprocessing_steps": [
+      "delta_computation",
+      "ewcl_lookup",
+      "embedding_lookup",
+      "sequence_features"
+    ]
+  },
+  "amino_acid_properties": {
+    "hydropathy_index": {
+      "A": 1.8, "R": -4.5, "N": -3.5, "D": -3.5, "C": 2.5,
+      "Q": -3.5, "E": -3.5, "G": -0.4, "H": -3.2, "I": 4.5,
+      "L": 3.8, "K": -3.9, "M": 1.9, "F": 2.8, "P": -1.6,
+      "S": -0.8, "T": -0.7, "W": -0.9, "Y": -1.3, "V": 4.2
+    },
+    "charge_at_ph7": {
+      "A": 0, "R": 1, "N": 0, "D": -1, "C": 0,
+      "Q": 0, "E": -1, "G": 0, "H": 0.5, "I": 0,
+      "L": 0, "K": 1, "M": 0, "F": 0, "P": 0,
+      "S": 0, "T": 0, "W": 0, "Y": 0, "V": 0
+    }
+  },
+  "usage_notes": {
+    "feature_scaling": "All features should be standardized before model input",
+    "missing_values": "Delta features may be NaN for invalid positions",
+    "embedding_availability": "Check has_embeddings flag before using",
+    "ewcl_availability": "EWCL features require EWCL model predictions",
+    "position_validation": "Ensure position is within sequence bounds",
+    "amino_acid_codes": "Use standard single-letter codes (A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V)"
+  },
+  "file_metadata": {
+    "generated": "2025-09-06 (CORRECTED)",
+    "models": ["ClinVar v7_3", "EWCLv1C"],
+    "total_features": {"clinvar_v7_3": 42, "ewclv1c": 50},
+    "key_differences": "Position feature + 4 EWCL features"
+  }
+}
