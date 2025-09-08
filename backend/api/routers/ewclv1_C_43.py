@@ -6,7 +6,7 @@ import numpy as np
 
 from backend.models.model_manager import get_model, is_loaded
 
-router = APIRouter(prefix="/clinvar", tags=["clinvar-43-features"])
+router = APIRouter(prefix="/clinvar-43", tags=["clinvar-43-features"])
 
 # 43-feature ClinVar model features (missing the 4 EWCL features)
 EWCLV1_C_43_FEATURES = [
