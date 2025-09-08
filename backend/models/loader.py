@@ -1,6 +1,8 @@
 from __future__ import annotations
-import os, pickle, joblib, hashlib, json, sys, traceback, io
+import os, pickle, joblib, hashlib, json, sys, traceback, io, re
 from pathlib import Path
+
+LFS_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 
 def _hash(path, algo="sha256", max_mb=16):
     h = hashlib.new(algo)
@@ -36,6 +38,16 @@ def load_model_forgiving(path: str):
 
     with open(path, "rb") as f:
         blob = f.read()
+
+    # --- Guard: LFS pointer or HTML error page? ---
+    head = blob[:200].lower()
+    if head.startswith(LFS_PREFIX):
+        raise RuntimeError(
+            "Model file is a Git LFS pointer, not the binary. Run `git lfs pull` "
+            "or provision the real artifact at this path."
+        )
+    if head.startswith(b"<!doctype html") or b"<html" in head:
+        raise RuntimeError("Model path contains an HTML page, not a model (check your download).")
 
     last_err = None
     # 1) joblib
