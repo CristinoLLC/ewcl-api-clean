@@ -5,9 +5,12 @@ WORKDIR /app
 ENV PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1 \
     UVICORN_WORKERS=2
 
-# system deps (Biopython/scipy sometimes need build tools)
+# system deps (Biopython/scipy sometimes need build tools + Git LFS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential procps curl && rm -rf /var/lib/apt/lists/*
+    build-essential procps curl git git-lfs && rm -rf /var/lib/apt/lists/*
+
+# Install Git LFS
+RUN git lfs install
 
 # install python deps
 COPY requirements.txt .
@@ -16,6 +19,9 @@ RUN pip install -r requirements.txt
 
 # copy app
 COPY . .
+
+# Pull LFS files to get real model binaries instead of pointer files
+RUN git lfs pull
 
 # Create model directory and copy entire tree for robustness (avoid per-file COPY fragility)
 RUN mkdir -p /app/models
