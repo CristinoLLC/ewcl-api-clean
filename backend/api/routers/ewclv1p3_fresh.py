@@ -880,6 +880,8 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         is_experimental = any(keyword in method for keyword in ["X-RAY", "ELECTRON", "NMR", "CRYO-EM"])
         is_alphafold = "ALPHAFOLD" in method or "AF" in method or pdb_data["source"] == "alphafold"
         
+        print(f"[ewclv1-p3-fresh] Method detection: '{method}' -> experimental={is_experimental}, alphafold={is_alphafold}, parser_source={pdb_data['source']}")
+        
         # Build response using new structure with features from DataFrame
         residues_out = []
         chain_id = pdb_data["chain"]
