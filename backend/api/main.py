@@ -9,6 +9,7 @@ from backend.api.routers.ewclv1p3_fresh import router as ewclv1p3_router  # Fres
 from backend.api.routers.ewclv1_M import router as ewclv1m_router
 from backend.api.routers.ewclv1 import router as ewclv1_router
 from backend.api.routers.ewclv1_C import router as ewclv1c_router, EWCLV1_C_FEATURES
+from backend.api.routers.clinvar_variants import router as clinvar_simple_router
 
 try:
     from backend.api.routers.clinvar_v73 import router as clinvar_router
@@ -49,6 +50,7 @@ app.include_router(ewclv1p3_router)  # PDB model with 302 REAL features
 app.include_router(ewclv1m_router)   # Disorder model with 255 REAL features
 app.include_router(ewclv1_router)    # FASTA model with 249 REAL features
 app.include_router(ewclv1c_router)   # ClinVar model with 47 REAL features
+app.include_router(clinvar_simple_router)  # Simple ClinVar model with variants format
 
 if clinvar_router is not None:
     app.include_router(clinvar_router)
@@ -57,7 +59,8 @@ if clinvar_router is not None:
 def root():
     routes = [
         "/ewcl/health", "/ewcl/predict/ewclv1m", "/ewcl/analyze-fasta/ewclv1",
-        "/ewcl/analyze-pdb/ewclv1-p3", "/ewcl/analyze-fasta/ewclv1-m", "/clinvar/ewclv1-C/analyze-variants"
+        "/ewcl/analyze-pdb/ewclv1-p3", "/ewcl/analyze-fasta/ewclv1-m", 
+        "/clinvar/ewclv1-C/analyze-variants", "/clinvar/analyze-variants"
     ]
     if clinvar_router is not None:
         routes += ["/clinvar/v7_3/health", "/clinvar/v7_3/predict", "/clinvar/v7_3/predict_gated"]
