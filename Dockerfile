@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # install python deps
 COPY requirements.txt .
 COPY requirements-backend.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt && \
+    pip install gemmi==0.7.3
 
 # copy app
 COPY . .
@@ -46,9 +47,9 @@ RUN find /app/models -maxdepth 3 -type f -printf "%P %s\n" | sort
 
 # Set default env vars (can be overridden). Correct names for loader.
 ENV EWCLV1_MODEL_PATH=/app/models/disorder/ewclv1.pkl \
-    EWCLV1M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl \
-    EWCLV1P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl \
-    EWCLV1C_MODEL_PATH=/app/models/clinvar/C_Full_model.pkl \
+    EWCLV1_M_MODEL_PATH=/app/models/disorder/ewclv1-M.pkl \
+    EWCLV1_P3_MODEL_PATH=/app/models/pdb/ewclv1p3.pkl \
+    EWCLV1_C_MODEL_PATH=/app/models/clinvar/C_Full_model.pkl \
     EWCLV1_C_43_MODEL_PATH=/app/models/clinvar/C_43_model.pkl \
     MAX_BODY_BYTES=100000000 \
     PORT=8080
