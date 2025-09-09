@@ -74,15 +74,19 @@ def _initialize_models():
             else:
                 model_path = os.environ.get(env_var)
             
+            print(f"[model_manager] Attempting to load {model_name} from {model_path}")
+            
             if model_path and os.path.exists(model_path):
                 try:
                     model = load_model_forgiving(model_path)
                     _model_cache[model_name] = model
-                    print(f"[model_manager] Loaded model '{model_name}' from {model_path}")
+                    print(f"[model_manager] ✅ Loaded model '{model_name}' from {model_path}")
                 except Exception as e:
-                    print(f"[model_manager] Failed to load {model_name} from {model_path}: {e}")
+                    print(f"[model_manager] ❌ Failed to load {model_name} from {model_path}: {e}")
+                    import traceback
+                    print(f"[model_manager] Traceback: {traceback.format_exc()}")
             else:
-                print(f"[model_manager] Model path not found for {model_name}: {model_path}")
+                print(f"[model_manager] ❌ Model path not found for {model_name}: {model_path}")
         
         _models_loaded = True
         print("[model_manager] Model initialization complete.")
