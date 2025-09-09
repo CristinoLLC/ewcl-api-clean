@@ -424,7 +424,9 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
                 # Fall back to original parser
                 pdb_data = _parse_with_fallback_parser(raw_bytes)
         else:
-            raise HTTPException(status_code=503, detail="Gemmi-based parser not available")
+            print("[ewclv1-p3-fresh] Gemmi not available, using fallback parser")
+            # Use fallback parser when gemmi is not available
+            pdb_data = _parse_with_fallback_parser(raw_bytes)
         
         if not pdb_data["residues"]:
             raise HTTPException(status_code=400, detail="No residues found in structure")
