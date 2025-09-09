@@ -618,19 +618,19 @@ def _parse_with_fallback_parser(blob: bytes) -> Dict:
         
         # Choose the longest chain
         chosen_chain = max(chains.keys(), key=lambda c: len(chains[c]))
-    residues = list(chosen_chain.values())
+        residues = list(chosen_chain.values())
         residues.sort(key=lambda r: (r["resseq"], r["icode"]))
         
         # Heuristic: if bfactor values are in [0, 100], treat as pLDDT
-    if metric_name == "bfactor":
+        if metric_name == "bfactor":
             bvals = [r["bfactor"] for r in residues if not np.isnan(r["bfactor"])]
             if bvals and 0 <= np.median(bvals) <= 100:
-            source = "alphafold"
-            metric_name = "plddt"
+                source = "alphafold"
+                metric_name = "plddt"
         
         return {
-        "source": source,
-        "metric_name": metric_name,
+            "source": source,
+            "metric_name": metric_name,
             "chain": chosen_chain,
             "residues": residues
         }
