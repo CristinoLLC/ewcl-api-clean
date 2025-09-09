@@ -439,6 +439,9 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         extractor = FeatureExtractor(sequence, confidence, pdb_data["source"])
         feature_matrix = extractor.extract_all_features()
         
+        print(f"[ewclv1-p3-fresh] Feature matrix type: {type(feature_matrix)}")
+        print(f"[ewclv1-p3-fresh] Feature matrix shape: {feature_matrix.shape if hasattr(feature_matrix, 'shape') else 'No shape'}")
+        
         # Load model and make predictions
         model = get_model()
         
@@ -448,6 +451,8 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         
         # Ensure feature_matrix is a DataFrame and has the expected columns
         if not isinstance(feature_matrix, pd.DataFrame):
+            print(f"[ewclv1-p3-fresh] ERROR: Expected DataFrame, got {type(feature_matrix)}")
+            print(f"[ewclv1-p3-fresh] Feature matrix content: {feature_matrix}")
             raise ValueError(f"Expected DataFrame, got {type(feature_matrix)}")
         
         # Check if all required features are present
@@ -769,8 +774,8 @@ class FeatureExtractor:
         win_len = len(win_seq)
         
         if w in [21, 51, 101]:  # Special windows
-            feat_dict[f"frac_dis_win{w}"] = dis_count / win_len if win_len > 0 else 0.0
-            feat_dict[f"frac_ord_win{w}"] = ord_count / win_len if win_len > 0 else 0.0
+        feat_dict[f"frac_dis_win{w}"] = dis_count / win_len if win_len > 0 else 0.0
+        feat_dict[f"frac_ord_win{w}"] = ord_count / win_len if win_len > 0 else 0.0
         
         # Uversky distance
         mean_charge = abs(np.mean(win_charge))
@@ -840,20 +845,20 @@ class FeatureExtractor:
         for aa in poly_aas:
             # Check if current position is in a run of 3+ identical amino acids
             if idx < len(self.sequence) and self.sequence[idx] == aa:
-                run_length = 1
-                
-                # Count backwards
-                for i in range(idx - 1, -1, -1):
-                    if self.sequence[i] != aa:
-                        break
-                    run_length += 1
+            run_length = 1
             
-                # Count forwards
-                for i in range(idx + 1, self.n_res):
+            # Count backwards
+            for i in range(idx - 1, -1, -1):
                     if self.sequence[i] != aa:
-                        break
-                    run_length += 1
-                
+                    break
+                run_length += 1
+            
+            # Count forwards
+            for i in range(idx + 1, self.n_res):
+                if self.sequence[i] != aa:
+                    break
+                run_length += 1
+            
                 feat_dict[f"in_poly_{aa}_run_ge3"] = 1.0 if run_length >= 3 else 0.0
     
     def _add_derived_features(self, feat_dict: Dict, idx: int):
