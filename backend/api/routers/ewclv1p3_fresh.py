@@ -774,8 +774,8 @@ class FeatureExtractor:
         win_len = len(win_seq)
         
         if w in [21, 51, 101]:  # Special windows
-        feat_dict[f"frac_dis_win{w}"] = dis_count / win_len if win_len > 0 else 0.0
-        feat_dict[f"frac_ord_win{w}"] = ord_count / win_len if win_len > 0 else 0.0
+            feat_dict[f"frac_dis_win{w}"] = dis_count / win_len if win_len > 0 else 0.0
+            feat_dict[f"frac_ord_win{w}"] = ord_count / win_len if win_len > 0 else 0.0
         
         # Uversky distance
         mean_charge = abs(np.mean(win_charge))
@@ -845,20 +845,20 @@ class FeatureExtractor:
         for aa in poly_aas:
             # Check if current position is in a run of 3+ identical amino acids
             if idx < len(self.sequence) and self.sequence[idx] == aa:
-            run_length = 1
-            
-            # Count backwards
-            for i in range(idx - 1, -1, -1):
+                run_length = 1
+                
+                # Count backwards
+                for i in range(idx - 1, -1, -1):
                     if self.sequence[i] != aa:
-                    break
-                run_length += 1
+                        break
+                    run_length += 1
             
-            # Count forwards
-            for i in range(idx + 1, self.n_res):
-                if self.sequence[i] != aa:
-                    break
-                run_length += 1
-            
+                # Count forwards
+                for i in range(idx + 1, self.n_res):
+                    if self.sequence[i] != aa:
+                        break
+                    run_length += 1
+                
                 feat_dict[f"in_poly_{aa}_run_ge3"] = 1.0 if run_length >= 3 else 0.0
     
     def _add_derived_features(self, feat_dict: Dict, idx: int):
