@@ -200,6 +200,9 @@ class PdbResidueOut(BaseModel):
     pdb_cl: float
     plddt: Optional[float] = None
     bfactor: Optional[float] = None
+    # Confidence score (unified field for both pLDDT and bfactor)
+    confidence: Optional[float] = None
+    confidence_type: Optional[str] = None  # "plddt", "bfactor", or "none"
     # Expose existing feature values
     hydropathy: Optional[float] = None
     charge_pH7: Optional[float] = None
@@ -369,9 +372,9 @@ def get_model():
                 MODEL = load_model_forgiving(path)
             print(f"[ewclv1-p3] ✅ Model loaded successfully", flush=True)
         except Exception as e:
-            print(f"[ewclv1-p3] ❌ Model loading failed: {e}", flush=True)
-            # Surface the signature we use in the frontend to show a friendly message
-            raise HTTPException(status_code=503, detail=f"All loaders failed: {e}")
+            print(f"[ewclv1-p3] ❌ Failed to load model: {e}", flush=True)
+            raise HTTPException(status_code=503, detail=f"Failed to load model: {e}")
+    
     return MODEL
 
 # ============================================================================
@@ -417,7 +420,8 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         # Parse structure using gemmi-based loader
         if GEMMI_AVAILABLE:
             try:
-                pdb_data = load_structure_unified(raw_bytes, file.filename)
+                from backend.api.utils.smart_structure_loader import load_for_legacy_model
+                pdb_data = load_for_legacy_model(raw_bytes)
                 print(f"[ewclv1-p3-fresh] Structure loaded: {len(pdb_data.get('residues', []))} residues")
             except Exception as e:
                 print(f"[ewclv1-p3-fresh] Gemmi parser failed, falling back: {e}")
