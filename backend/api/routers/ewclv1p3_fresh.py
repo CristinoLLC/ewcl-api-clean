@@ -605,45 +605,140 @@ def _parse_with_fallback_parser(blob: bytes) -> Dict:
     except Exception as e:
         raise ValueError(f"Failed to decode PDB file: {str(e)}")
     
-    # Parse ATOM records (original logic)
+    # Parse ATOM records (PDB) or atom_site records (CIF)
     chains = {}
+    atom_count = 0
+    ca_count = 0
+    
     try:
-        for line in lines:
-            if not line.startswith("ATOM"):
-                continue
-            if line[12:16].strip() != "CA":
-                continue
+        # Check if this is a CIF file
+        is_cif = any(line.startswith("data_") or line.startswith("_") for line in lines[:10])
+        
+        if is_cif:
+            # Parse CIF format
+            print("[fallback-parser] Detected CIF format, parsing atom_site records")
+            in_atom_site = False
             
-            try:
-                altloc = line[16].strip()
-                resname = line[17:20].strip().upper()
-                chain_id = line[21].strip() or "A"
-                resseq = int(line[22:26])
-                icode = line[26].strip()
-                bfactor = float(line[60:66]) if len(line) >= 66 else 0.0
+            for line in lines:
+                line = line.strip()
                 
-                # Convert to single letter amino acid
-                aa = AA3_TO_1.get(resname, "X")
-                
-                # Use altloc preference: '' or 'A' preferred
-                key = (resseq, icode)
-                if chain_id not in chains:
-                    chains[chain_id] = {}
-                
-                if key not in chains[chain_id] or altloc in ("", "A"):
+                if line.startswith("ATOM") or line.startswith("HETATM"):
+                    in_atom_site = True
+                    # Process this line immediately
+                    parts = line.split()
+                    if len(parts) < 15:
+                        continue
+                    
+                    atom_count += 1
+                    
+                    # Extract atom ID (should be CA for alpha carbon)
+                    # Format: ATOM 1 N N . THR A 1 1 ? 17.047 14.099 3.625 1.00 13.79 ? 1 THR A N 1
+                    # Index:   0   1 2 3 4   5   6 7 8 9     10     11     12    13   14 15 16 17 18 19
+                    atom_id = parts[3] if len(parts) > 3 else ""
+                    if atom_id != "CA":
+                        continue
+                    ca_count += 1
+                    
+                    # Extract other fields
+                    residue = parts[5] if len(parts) > 5 else "UNK"  # THR
+                    chain_id = parts[6] if len(parts) > 6 else "A"   # A
+                    seq_id = int(parts[8]) if len(parts) > 8 and parts[8].isdigit() else 0  # 2, 3, 4, 5...
+                    bfactor = float(parts[13]) if len(parts) > 13 else 0.0  # 13.79
+                    
+                    # Convert to single letter amino acid
+                    aa = AA3_TO_1.get(residue.upper(), "X")
+                    
+                    # Store in chains
+                    if chain_id not in chains:
+                        chains[chain_id] = {}
+                    
+                    key = (seq_id, "")
                     chains[chain_id][key] = {
                         "aa": aa,
-                        "resseq": resseq,
-                        "icode": icode,
+                        "resseq": seq_id,
+                        "icode": "",
                         "bfactor": bfactor
                     }
-            except Exception:
-                continue
+                    continue
+                
+                if in_atom_site and line and not line.startswith("#") and not line.startswith("_"):
+                    # Parse atom_site data - format: ATOM 1 N N . THR A 1 1 ? 17.047 14.099 3.625 1.00 13.79 ? 1 THR A N 1
+                    parts = line.split()
+                    if len(parts) < 15:
+                        continue
+                    
+                    atom_count += 1
+                    
+                    # Extract atom ID (should be CA for alpha carbon)
+                    # Format: ATOM 1 N N . THR A 1 1 ? 17.047 14.099 3.625 1.00 13.79 ? 1 THR A N 1
+                    # Index:   0   1 2 3 4   5   6 7 8 9     10     11     12    13   14 15 16 17 18 19
+                    atom_id = parts[3] if len(parts) > 3 else ""
+                    if atom_id != "CA":
+                        continue
+                    ca_count += 1
+                    
+                    # Extract other fields
+                    residue = parts[5] if len(parts) > 5 else "UNK"  # THR
+                    chain_id = parts[6] if len(parts) > 6 else "A"   # A
+                    seq_id = int(parts[8]) if len(parts) > 8 and parts[8].isdigit() else 0  # 2, 3, 4, 5...
+                    bfactor = float(parts[13]) if len(parts) > 13 else 0.0  # 13.79
+                    
+                    # Convert to single letter amino acid
+                    aa = AA3_TO_1.get(residue.upper(), "X")
+                    
+                    # Store in chains
+                    if chain_id not in chains:
+                        chains[chain_id] = {}
+                    
+                    key = (seq_id, "")
+                    chains[chain_id][key] = {
+                        "aa": aa,
+                        "resseq": seq_id,
+                        "icode": "",
+                        "bfactor": bfactor
+                    }
+        else:
+            # Parse PDB format
+            print("[fallback-parser] Detected PDB format, parsing ATOM records")
+            for line in lines:
+                if not line.startswith("ATOM"):
+                    continue
+                atom_count += 1
+                
+                if line[12:16].strip() != "CA":
+                    continue
+                ca_count += 1
+                
+                try:
+                    altloc = line[16].strip()
+                    resname = line[17:20].strip().upper()
+                    chain_id = line[21].strip() or "A"
+                    resseq = int(line[22:26])
+                    icode = line[26].strip()
+                    bfactor = float(line[60:66]) if len(line) >= 66 else 0.0
+                    
+                    # Convert to single letter amino acid
+                    aa = AA3_TO_1.get(resname, "X")
+                    
+                    # Use altloc preference: '' or 'A' preferred
+                    key = (resseq, icode)
+                    if chain_id not in chains:
+                        chains[chain_id] = {}
+                    
+                    if key not in chains[chain_id] or altloc in ("", "A"):
+                        chains[chain_id][key] = {
+                            "aa": aa,
+                            "resseq": resseq,
+                            "icode": icode,
+                            "bfactor": bfactor
+                        }
+                except Exception:
+                    continue
     except Exception as e:
         raise ValueError(f"Failed to parse ATOM records: {str(e)}")
     
     if not chains:
-        raise ValueError("No CA atoms found in PDB")
+        raise ValueError(f"No CA atoms found in PDB. Found {atom_count} ATOM records but {ca_count} CA atoms. Please ensure the file contains a valid protein structure with CA (alpha carbon) atoms. Supported formats: PDB, mmCIF")
     
     try:
         # Choose the longest chain
