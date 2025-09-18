@@ -273,8 +273,11 @@ async def evaluate_hallucination(
                     aa_sequence.append(sequence[i] if i < len(sequence) else "X")
                     
                     if feature_matrix is not None and i < len(feature_matrix):
-                        hydro.append(float(feature_matrix.iloc[i].get("hydropathy_x", 0.0)))
-                        charge.append(float(feature_matrix.iloc[i].get("charge_pH7", 0.0)))
+                        # Fixed: Use proper pandas iloc access instead of .get() method
+                        hydro_val = feature_matrix.iloc[i]["hydropathy_x"] if "hydropathy_x" in feature_matrix.columns else 0.0
+                        charge_val = feature_matrix.iloc[i]["charge_pH7"] if "charge_pH7" in feature_matrix.columns else 0.0
+                        hydro.append(float(hydro_val))
+                        charge.append(float(charge_val))
                     else:
                         hydro.append(0.0)
                         charge.append(0.0)
