@@ -426,11 +426,15 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         # Convert to the format expected by the model
         residues = []
         for _, row in df.iterrows():
+            # Convert 3-letter amino acid code to 1-letter code
+            aa_3letter = row["resname"]
+            aa_1letter = AA3_TO_1.get(aa_3letter.upper(), "X")
+            
             residues.append({
-                "aa": row["resname"],
+                "aa": aa_1letter,  # Use 1-letter code
                 "resseq": row["auth_seq_id"] or row["seq_id"] or 0,
                 "icode": "",
-                "bfactor": 0.0  # Not available in the new format
+                "bfactor": float(row.get("bfactor", 0.0))  # Use actual B-factor from structure
             })
         
         # Extract sequence and confidence values
@@ -449,6 +453,7 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         
         print(f"[ewclv1-p3-fresh] Feature matrix type: {type(feature_matrix)}")
         print(f"[ewclv1-p3-fresh] Feature matrix shape: {feature_matrix.shape if hasattr(feature_matrix, 'shape') else 'No shape'}")
+        print(f"[ewclv1-p3-fresh] Available columns: {list(feature_matrix.columns)[:10]}...")
         
         # Load model and make predictions
         try:
@@ -521,9 +526,11 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         
         for i, (_, row) in enumerate(df.iterrows()):
             # Extract features from the already-computed DataFrame
-            hydropathy = _first_present(feature_matrix, i, "hydropathy", "hydropathy_x", "hydropathy_y")
-            charge_pH7 = _first_present(feature_matrix, i, "charge_pH7", "charge_ph7", "charge", "charge_x", "charge_y")
-            curvature = _first_present(feature_matrix, i, "curvature", "curvature_x", "curvature_y", "curv_kappa", "geom_curvature", "backbone_kappa")
+            # Use the actual column names from the feature matrix
+            hydropathy = _first_present(feature_matrix, i, "hydropathy_x", "hydropathy_y")
+            charge_pH7 = _first_present(feature_matrix, i, "charge_pH7", "charge_x", "charge_y")
+            curvature = _first_present(feature_matrix, i, "curvature_x", "curvature_y")
+            
             
             # Prepare confidence metrics
             plddt = None
@@ -533,10 +540,14 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             else:
                 bfactor = float(confidence[i])
             
+            # Convert 3-letter amino acid code to 1-letter code for response
+            aa_3letter = row["resname"]
+            aa_1letter = AA3_TO_1.get(aa_3letter.upper(), "X")
+            
             residues_out.append(PdbResidueOut(
                 chain=str(row["chain"]),
                 resi=int(row["auth_seq_id"]) if row["auth_seq_id"] is not None else i + 1,
-                aa=str(row["resname"]),
+                aa=aa_1letter,  # Use 1-letter code
                 pdb_cl=float(predictions[i]),
                 plddt=plddt,
                 bfactor=bfactor,
@@ -1007,7 +1018,7 @@ class FeatureExtractor:
         feat_dict["charge_entropy_y"] = self._local_entropy(self.charge, idx, 21)
         
         # Curvature features
-        feat_dict["curvature_x"] = self._local_curvature(self.confidence, idx)
+        feat_dict["curvature_x"] = self._local_curvature(self.hydropathy, idx)
         feat_dict["curvature_y"] = self._local_curvature(self.hydropathy, idx)
         
         # Additional features

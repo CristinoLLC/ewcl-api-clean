@@ -83,6 +83,7 @@ def to_rows_gemmi(st: gemmi.Structure) -> pd.DataFrame:
                 y=float(atom.pos.y),
                 z=float(atom.pos.z),
                 atom=atom.name,
+                bfactor=float(atom.b_iso) if hasattr(atom, 'b_iso') else 0.0,
             ))
     return pd.DataFrame(rows)
 
@@ -116,6 +117,7 @@ def to_rows_biopython(st) -> pd.DataFrame:
                 z=float(atom.coord[2]),
                 atom=atom.get_name(),
                 occ=float(occ),
+                bfactor=float(atom.get_bfactor()) if hasattr(atom, 'get_bfactor') else 0.0,
             ))
     return pd.DataFrame(rows)
 
