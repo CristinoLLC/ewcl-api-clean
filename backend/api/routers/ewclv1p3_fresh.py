@@ -432,7 +432,11 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             # Use fallback parser when gemmi is not available
             pdb_data = _parse_with_fallback_parser(raw_bytes)
         
-        if not pdb_data["residues"]:
+        # Validate parsed data
+        if not pdb_data or not isinstance(pdb_data, dict):
+            raise HTTPException(status_code=400, detail="Failed to parse PDB structure")
+        
+        if not pdb_data.get("residues"):
             raise HTTPException(status_code=400, detail="No residues found in structure")
         
         # Extract sequence and confidence values
@@ -590,59 +594,59 @@ def _parse_with_fallback_parser(blob: bytes) -> Dict:
         metric_name = "bfactor"
     
     # Parse ATOM records (original logic)
-        chains = {}
-        for line in lines:
-            if not line.startswith("ATOM"):
-                continue
-            if line[12:16].strip() != "CA":
-                continue
+    chains = {}
+    for line in lines:
+        if not line.startswith("ATOM"):
+            continue
+        if line[12:16].strip() != "CA":
+            continue
+        
+        try:
+            altloc = line[16].strip()
+            resname = line[17:20].strip().upper()
+            chain_id = line[21].strip() or "A"
+            resseq = int(line[22:26])
+            icode = line[26].strip()
+            bfactor = float(line[60:66]) if len(line) >= 66 else 0.0
             
-            try:
-                altloc = line[16].strip()
-                resname = line[17:20].strip().upper()
-                chain_id = line[21].strip() or "A"
-                resseq = int(line[22:26])
-                icode = line[26].strip()
-                bfactor = float(line[60:66]) if len(line) >= 66 else 0.0
-                
-                # Convert to single letter amino acid
-                aa = AA3_TO_1.get(resname, "X")
-                
-                # Use altloc preference: '' or 'A' preferred
-                key = (resseq, icode)
-                chains.setdefault(chain_id, {})
-                
-                if key not in chains[chain_id] or altloc in ("", "A"):
-                    chains[chain_id][key] = {
-                        "aa": aa,
-                        "resseq": resseq,
-                        "icode": icode,
-                        "bfactor": bfactor
-                    }
-            except Exception:
-                continue
-        
-        if not chains:
-            raise ValueError("No CA atoms found in PDB")
-        
-        # Choose the longest chain
-        chosen_chain = max(chains.keys(), key=lambda c: len(chains[c]))
-        residues = list(chosen_chain.values())
-        residues.sort(key=lambda r: (r["resseq"], r["icode"]))
-        
-        # Heuristic: if bfactor values are in [0, 100], treat as pLDDT
-        if metric_name == "bfactor":
-            bvals = [r["bfactor"] for r in residues if not np.isnan(r["bfactor"])]
-            if bvals and 0 <= np.median(bvals) <= 100:
-                source = "alphafold"
-                metric_name = "plddt"
-        
-        return {
-            "source": source,
-            "metric_name": metric_name,
-            "chain": chosen_chain,
-            "residues": residues
-        }
+            # Convert to single letter amino acid
+            aa = AA3_TO_1.get(resname, "X")
+            
+            # Use altloc preference: '' or 'A' preferred
+            key = (resseq, icode)
+            chains.setdefault(chain_id, {})
+            
+            if key not in chains[chain_id] or altloc in ("", "A"):
+                chains[chain_id][key] = {
+                    "aa": aa,
+                    "resseq": resseq,
+                    "icode": icode,
+                    "bfactor": bfactor
+                }
+        except Exception:
+            continue
+    
+    if not chains:
+        raise ValueError("No CA atoms found in PDB")
+    
+    # Choose the longest chain
+    chosen_chain = max(chains.keys(), key=lambda c: len(chains[c]))
+    residues = list(chosen_chain.values())
+    residues.sort(key=lambda r: (r["resseq"], r["icode"]))
+    
+    # Heuristic: if bfactor values are in [0, 100], treat as pLDDT
+    if metric_name == "bfactor":
+        bvals = [r["bfactor"] for r in residues if not np.isnan(r["bfactor"])]
+        if bvals and 0 <= np.median(bvals) <= 100:
+            source = "alphafold"
+            metric_name = "plddt"
+    
+    return {
+        "source": source,
+        "metric_name": metric_name,
+        "chain": chosen_chain,
+        "residues": residues
+    }
 
 # ============================================================================
 # FEATURE EXTRACTOR (unchanged from original)
