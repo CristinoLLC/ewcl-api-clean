@@ -4,6 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.router import router as ewcl_router
 from backend.models.model_manager import load_all_models, get_loaded_models  # Use new model manager
 
+# Version safety check for EWCLp3 model compatibility
+try:
+    from sklearn import __version__ as sklv
+    if not sklv.startswith("1.7."):
+        print(f"[ewcl] ⚠️  Warning: EWCLp3 artifact expects scikit-learn 1.7.x, got {sklv}")
+        print("[ewcl] Model outputs may be inconsistent due to version mismatch")
+except ImportError:
+    print("[ewcl] ⚠️  scikit-learn not available for version check")
+
 # Import individual model routers with REAL features (no generic Column_X)
 from backend.api.routers.ewclv1p3_fresh import router as ewclv1p3_router  # Fresh implementation with all 302 features
 from backend.api.routers.ewclv1_M import router as ewclv1m_router

@@ -196,6 +196,14 @@ try:
 except Exception as e:
     log.warning(f"[warn] ClinVar variants router not mounted: {e}")
 
+# ── EWCL-H Hallucination Detection router ───────────────────────────────────
+try:
+    from backend.api.routers.ewcl_h import router as ewcl_h_router
+    app.include_router(ewcl_h_router)
+    log.info("[init] EWCL-H hallucination detection router enabled")
+except Exception as e:
+    log.warning(f"[warn] EWCL-H router not mounted: {e}")
+
 # ── health + models status ──────────────────────────────────────────────────
 @app.get("/")
 def root():

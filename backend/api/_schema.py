@@ -1,5 +1,12 @@
+"""
+Pydantic schemas for EWCL-H API
+==============================
+
+Request and response models for hallucination detection endpoints.
+"""
+
 from typing import List, Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist
 import math
 
 def _safe_num(x):
@@ -52,3 +59,74 @@ def build_residue(
         "helix_prop": _safe_num(feats.get("helix_prop")),
         "sheet_prop": _safe_num(feats.get("sheet_prop")),
     }
+
+class ResidueScore(BaseModel):
+    """Per-residue scores and flags with comprehensive data for frontend."""
+    pos: int
+    aa: Optional[str] = None  # Add amino acid for frontend display
+    ewcl: float
+    plddt: Optional[float] = None
+    bfactor: Optional[float] = None  # Include B-factor for X-ray structures
+    confidence: Optional[float] = None  # Unified confidence score
+    confidence_type: Optional[str] = None  # "plddt", "bfactor", or "none"
+    H: Optional[float] = None
+    is_high_H: Optional[bool] = None
+    is_disagree: Optional[bool] = None
+    # Additional features for correlation analysis
+    hydropathy: Optional[float] = None
+    charge_pH7: Optional[float] = None
+    curvature: Optional[float] = None
+
+class HallucinationRequest(BaseModel):
+    """Request for hallucination detection."""
+    uniprot: Optional[str] = Field(None, description="UniProt accession if known")
+    chains: Optional[List[str]] = Field(None, description="Subset of chain IDs to process")
+    lambda_h: Optional[float] = Field(0.871, description="Hallucination sensitivity parameter")
+    tau: Optional[float] = Field(0.5, description="High hallucination threshold")
+    plddt_strict: Optional[float] = Field(70.0, description="Confident pLDDT threshold")
+    ewcl_source: Optional[Literal["pdb_model", "af_proxy"]] = Field("pdb_model", description="EWCL source")
+    af_proxy_csv: Optional[str] = Field(None, description="Path to AF-proxy CSV")
+
+class HallucinationResponse(BaseModel):
+    """Response for a single chain analysis."""
+    status: Literal["ok", "no_confidence_available"]
+    unit: Optional[str] = None
+    uniprot: Optional[str] = None
+    chain_id: str
+
+    # NEW: source + overlap bookkeeping
+    ewcl_source: Literal["pdb_model", "af_proxy"]
+    confidence_type: Literal["plddt", "bfactor", "none"]
+    n_res_total: int
+    n_ewcl_finite: int
+    n_plddt_finite: int
+    n_overlap_used: int
+
+    n_res: int
+    mean_EWCL: Optional[float] = None
+    mean_pLDDT: Optional[float] = None
+    p95_H: Optional[float] = None
+    frac_high_H: Optional[float] = None
+    frac_disagree: Optional[float] = None
+    flagged: Optional[bool] = None
+
+    residues: conlist(ResidueScore, min_length=1)
+    warnings: List[str] = []
+
+class MultiChainHallucinationResponse(BaseModel):
+    """Response for multi-chain analysis."""
+    results: List[HallucinationResponse]
+
+class OverlayMeta(BaseModel):
+    """Metadata for overlay JSON."""
+    uniprot: str
+    unit: str
+    lambda_h: float
+    tau: float
+    plddt_strict: float
+    status: str
+
+class OverlayResponse(BaseModel):
+    """Overlay JSON for 3D viewer."""
+    meta: OverlayMeta
+    residues: List[ResidueScore]
