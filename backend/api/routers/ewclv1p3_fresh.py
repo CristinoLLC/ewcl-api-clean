@@ -417,35 +417,37 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         if not raw_bytes:
             raise HTTPException(status_code=400, detail="Empty PDB file")
         
-        # Parse structure using gemmi-based loader
-        if GEMMI_AVAILABLE:
-            try:
-                from backend.api.utils.smart_structure_loader import load_for_legacy_model
-                pdb_data = load_for_legacy_model(raw_bytes)
-                print(f"[ewclv1-p3-fresh] Structure loaded: {len(pdb_data.get('residues', []))} residues")
-            except Exception as e:
-                print(f"[ewclv1-p3-fresh] Gemmi parser failed, falling back: {e}")
-                # Fall back to original parser
-                pdb_data = _parse_with_fallback_parser(raw_bytes)
-        else:
-            print("[ewclv1-p3-fresh] Gemmi not available, using fallback parser")
-            # Use fallback parser when gemmi is not available
-            pdb_data = _parse_with_fallback_parser(raw_bytes)
+        # Parse structure using fallback parser (more reliable)
+        print("[ewclv1-p3-fresh] Using fallback parser for reliability")
+        pdb_data = _parse_with_fallback_parser(raw_bytes)
         
         # Validate parsed data
+        print(f"[ewclv1-p3-fresh] pdb_data type: {type(pdb_data)}")
+        print(f"[ewclv1-p3-fresh] pdb_data keys: {list(pdb_data.keys()) if isinstance(pdb_data, dict) else 'Not a dict'}")
+        
         if not pdb_data or not isinstance(pdb_data, dict):
             raise HTTPException(status_code=400, detail="Failed to parse PDB structure")
         
         if not pdb_data.get("residues"):
             raise HTTPException(status_code=400, detail="No residues found in structure")
         
+        print(f"[ewclv1-p3-fresh] residues count: {len(pdb_data['residues'])}")
+        print(f"[ewclv1-p3-fresh] first residue: {pdb_data['residues'][0] if pdb_data['residues'] else 'No residues'}")
+        
         # Extract sequence and confidence values
         sequence = [r["aa"] for r in pdb_data["residues"]]
         confidence = [r["bfactor"] for r in pdb_data["residues"]]
         
+        print(f"[ewclv1-p3-fresh] Sequence length: {len(sequence)}")
+        print(f"[ewclv1-p3-fresh] Confidence length: {len(confidence)}")
+        print(f"[ewclv1-p3-fresh] Source: {pdb_data['source']}")
+        
         # Create feature extractor and generate all features
+        print(f"[ewclv1-p3-fresh] Creating FeatureExtractor...")
         extractor = FeatureExtractor(sequence, confidence, pdb_data["source"])
+        print(f"[ewclv1-p3-fresh] FeatureExtractor created, calling extract_all_features...")
         feature_matrix = extractor.extract_all_features()
+        print(f"[ewclv1-p3-fresh] extract_all_features completed")
         
         print(f"[ewclv1-p3-fresh] Feature matrix type: {type(feature_matrix)}")
         print(f"[ewclv1-p3-fresh] Feature matrix shape: {feature_matrix.shape if hasattr(feature_matrix, 'shape') else 'No shape'}")
@@ -656,10 +658,12 @@ class FeatureExtractor:
     """Extract all 302 features required by EWCLv1-P3 model."""
     
     def __init__(self, sequence: List[str], confidence: List[float], source: str):
+        print(f"[FeatureExtractor] Initializing with sequence length: {len(sequence)}")
         self.sequence = sequence
         self.confidence = confidence
         self.source = source
         self.n_res = len(sequence)
+        print(f"[FeatureExtractor] n_res: {self.n_res}")
         
         # Precompute amino acid properties
         self.hydropathy = [HYDROPATHY.get(aa, 0.0) for aa in sequence]
@@ -679,6 +683,9 @@ class FeatureExtractor:
             feat = self._extract_residue_features(i)
             features.append(feat)
         
+        print(f"[FeatureExtractor] Creating DataFrame with {len(features)} rows and {len(FEATURE_NAMES)} columns")
+        print(f"[FeatureExtractor] FEATURE_NAMES type: {type(FEATURE_NAMES)}")
+        print(f"[FeatureExtractor] First few feature names: {FEATURE_NAMES[:5]}")
         return pd.DataFrame(features, columns=FEATURE_NAMES)
     
     def _extract_residue_features(self, idx: int) -> List[float]:
