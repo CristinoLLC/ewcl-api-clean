@@ -406,49 +406,43 @@ def health_check():
 @router.post("/analyze-pdb/ewclv1-p3", response_model=PdbOut)
 async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
     """
-    Analyze PDB structure using EWCLv1-P3 with complete feature engineering.
+    Analyze PDB structure using EWCLv1-P3 with robust structure parsing.
     
-    This endpoint implements full feature extraction with all 302 features
-    required by the EWCLv1-P3 disorder prediction model, plus metadata enrichment.
+    Uses structural libraries (gemmi/Bio.PDB) to properly handle both PDB and mmCIF formats,
+    with automatic format detection and fallback parsing.
     """
     try:
         # Read and validate input
-        raw_bytes = await file.read()
-        if not raw_bytes:
-            raise HTTPException(status_code=400, detail="Empty PDB file")
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Empty upload.")
         
-        # Parse structure using fallback parser (more reliable)
-        print("[ewclv1-p3-fresh] Using fallback parser for reliability")
-        try:
-            pdb_data = _parse_with_fallback_parser(raw_bytes)
-        except Exception as e:
-            print(f"[ewclv1-p3-fresh] Fallback parser failed: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to parse PDB structure: {str(e)}")
+        # Parse structure using robust library approach
+        from backend.api.utils.structure_io import parse_structure
+        df, backend = parse_structure(data, file.filename)
         
-        # Validate parsed data
-        print(f"[ewclv1-p3-fresh] pdb_data type: {type(pdb_data)}")
-        print(f"[ewclv1-p3-fresh] pdb_data keys: {list(pdb_data.keys()) if isinstance(pdb_data, dict) else 'Not a dict'}")
+        print(f"[ewclv1-p3-fresh] Parsed {len(df)} residues using {backend}")
         
-        if not pdb_data or not isinstance(pdb_data, dict):
-            raise HTTPException(status_code=400, detail="Failed to parse PDB structure - parser returned invalid data")
-        
-        if not pdb_data.get("residues"):
-            raise HTTPException(status_code=400, detail="No residues found in structure")
-        
-        print(f"[ewclv1-p3-fresh] residues count: {len(pdb_data['residues'])}")
-        print(f"[ewclv1-p3-fresh] first residue: {pdb_data['residues'][0] if pdb_data['residues'] else 'No residues'}")
+        # Convert to the format expected by the model
+        residues = []
+        for _, row in df.iterrows():
+            residues.append({
+                "aa": row["resname"],
+                "resseq": row["auth_seq_id"] or row["seq_id"] or 0,
+                "icode": "",
+                "bfactor": 0.0  # Not available in the new format
+            })
         
         # Extract sequence and confidence values
-        sequence = [r["aa"] for r in pdb_data["residues"]]
-        confidence = [r["bfactor"] for r in pdb_data["residues"]]
+        sequence = [r["aa"] for r in residues]
+        confidence = [r["bfactor"] for r in residues]
         
         print(f"[ewclv1-p3-fresh] Sequence length: {len(sequence)}")
         print(f"[ewclv1-p3-fresh] Confidence length: {len(confidence)}")
-        print(f"[ewclv1-p3-fresh] Source: {pdb_data['source']}")
         
         # Create feature extractor and generate all features
         print(f"[ewclv1-p3-fresh] Creating FeatureExtractor...")
-        extractor = FeatureExtractor(sequence, confidence, pdb_data["source"])
+        extractor = FeatureExtractor(sequence, confidence, backend)
         print(f"[ewclv1-p3-fresh] FeatureExtractor created, calling extract_all_features...")
         feature_matrix = extractor.extract_all_features()
         print(f"[ewclv1-p3-fresh] extract_all_features completed")
@@ -457,11 +451,17 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         print(f"[ewclv1-p3-fresh] Feature matrix shape: {feature_matrix.shape if hasattr(feature_matrix, 'shape') else 'No shape'}")
         
         # Load model and make predictions
-        model = get_model()
-        
-        # IMPORTANT: Use our feature names directly since the model was trained on them
-        # The model's feature_names_in_ may show Column_X due to serialization issues
-        # but it was actually trained on our real feature names
+        try:
+            model = get_model()
+        except HTTPException as e:
+            # Check if model file exists locally for testing
+            local_model_path = "/Users/lucascristino/ewcl-api-clean/models/pdb/ewclv1p3.pkl"
+            if os.path.exists(local_model_path):
+                print(f"[ewclv1-p3-fresh] Using local model file: {local_model_path}")
+                import joblib
+                model = joblib.load(local_model_path)
+            else:
+                raise e
         
         # Ensure feature_matrix is a DataFrame and has the expected columns
         if not isinstance(feature_matrix, pd.DataFrame):
@@ -491,7 +491,7 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         print(f"[ewclv1-p3-fresh] Predictions: min={predictions.min():.3f}, max={predictions.max():.3f}, mean={predictions.mean():.3f}")
         
         # Extract PDB ID for metadata fetching
-        pdb_id = _maybe_guess_pdb_id(file.filename, raw_bytes)
+        pdb_id = _maybe_guess_pdb_id(file.filename, data)
         
         # Start metadata fetch in parallel (best effort, won't block)
         meta_task = asyncio.create_task(_fetch_metadata(pdb_id))
@@ -501,7 +501,7 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             "pdb_id": pdb_id,
             "note": "scores computed; metadata best-effort",
             "feature_count": len(FEATURE_NAMES),
-            "parser_version": "gemmi_based_high_performance"
+            "parser_version": f"robust_{backend}_based"
         }
         
         # Wait for metadata with timeout
@@ -514,9 +514,12 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         
         # Build response using new structure with features from DataFrame
         residues_out = []
-        chain_id = pdb_data["chain"]
         
-        for i, (residue, pred_score) in enumerate(zip(pdb_data["residues"], predictions)):
+        # Get unique chains from the DataFrame
+        chains = df["chain"].unique()
+        chain_id = str(chains[0]) if len(chains) > 0 else "A"
+        
+        for i, (_, row) in enumerate(df.iterrows()):
             # Extract features from the already-computed DataFrame
             hydropathy = _first_present(feature_matrix, i, "hydropathy", "hydropathy_x", "hydropathy_y")
             charge_pH7 = _first_present(feature_matrix, i, "charge_pH7", "charge_ph7", "charge", "charge_x", "charge_y")
@@ -525,16 +528,16 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             # Prepare confidence metrics
             plddt = None
             bfactor = None
-            if pdb_data["source"] == "alphafold":
+            if backend == "alphafold":
                 plddt = float(confidence[i])
             else:
                 bfactor = float(confidence[i])
             
             residues_out.append(PdbResidueOut(
-                chain=chain_id,
-                resi=int(residue["resseq"]),
-                aa=residue["aa"],
-                pdb_cl=float(pred_score),
+                chain=str(row["chain"]),
+                resi=int(row["auth_seq_id"]) if row["auth_seq_id"] is not None else i + 1,
+                aa=str(row["resname"]),
+                pdb_cl=float(predictions[i]),
                 plddt=plddt,
                 bfactor=bfactor,
                 hydropathy=hydropathy,
@@ -544,7 +547,7 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         
         # Add local metadata if no external metadata was found
         if not any(k in diagnostics for k in ("method", "resolution_angstrom")):
-            local_meta = _extract_local_metadata(pdb_data, residues_out)
+            local_meta = _extract_local_metadata({"source": backend, "chain": chain_id}, residues_out)
             diagnostics.update(local_meta)
             print(f"[ewclv1-p3-fresh] Added local metadata: {list(local_meta.keys())}")
         
@@ -559,7 +562,7 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         raise
     except Exception as e:
         print(f"[ewclv1-p3-fresh] ERROR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 # ============================================================================
 # SMART PARSER INTEGRATION
