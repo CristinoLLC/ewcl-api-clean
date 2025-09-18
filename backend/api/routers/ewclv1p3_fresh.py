@@ -419,14 +419,18 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
         
         # Parse structure using fallback parser (more reliable)
         print("[ewclv1-p3-fresh] Using fallback parser for reliability")
-        pdb_data = _parse_with_fallback_parser(raw_bytes)
+        try:
+            pdb_data = _parse_with_fallback_parser(raw_bytes)
+        except Exception as e:
+            print(f"[ewclv1-p3-fresh] Fallback parser failed: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to parse PDB structure: {str(e)}")
         
         # Validate parsed data
         print(f"[ewclv1-p3-fresh] pdb_data type: {type(pdb_data)}")
         print(f"[ewclv1-p3-fresh] pdb_data keys: {list(pdb_data.keys()) if isinstance(pdb_data, dict) else 'Not a dict'}")
         
         if not pdb_data or not isinstance(pdb_data, dict):
-            raise HTTPException(status_code=400, detail="Failed to parse PDB structure")
+            raise HTTPException(status_code=400, detail="Failed to parse PDB structure - parser returned invalid data")
         
         if not pdb_data.get("residues"):
             raise HTTPException(status_code=400, detail="No residues found in structure")
@@ -580,75 +584,88 @@ def load_structure_unified(blob: bytes, filename: str = None) -> Dict:
 
 def _parse_with_fallback_parser(blob: bytes) -> Dict:
     """Original Python-based parser as fallback."""
-    text = blob.decode("utf-8", errors="ignore")
-    lines = text.splitlines()
-    
-    # Detect structure source (same logic as original)
-    header = "\n".join(lines[:400]).upper()
-    if any(pattern in header for pattern in AF_PATTERNS):
-        source = "alphafold"
-        metric_name = "plddt"
-    elif "NMR" in header:
-        source = "nmr"
-        metric_name = "none"
-    else:
-        source = "xray"
-        metric_name = "bfactor"
+    try:
+        text = blob.decode("utf-8", errors="ignore")
+        lines = text.splitlines()
+        
+        if not lines:
+            raise ValueError("Empty PDB file")
+        
+        # Detect structure source (same logic as original)
+        header = "\n".join(lines[:400]).upper()
+        if any(pattern in header for pattern in AF_PATTERNS):
+            source = "alphafold"
+            metric_name = "plddt"
+        elif "NMR" in header:
+            source = "nmr"
+            metric_name = "none"
+        else:
+            source = "xray"
+            metric_name = "bfactor"
+    except Exception as e:
+        raise ValueError(f"Failed to decode PDB file: {str(e)}")
     
     # Parse ATOM records (original logic)
     chains = {}
-    for line in lines:
-        if not line.startswith("ATOM"):
-            continue
-        if line[12:16].strip() != "CA":
-            continue
-        
-        try:
-            altloc = line[16].strip()
-            resname = line[17:20].strip().upper()
-            chain_id = line[21].strip() or "A"
-            resseq = int(line[22:26])
-            icode = line[26].strip()
-            bfactor = float(line[60:66]) if len(line) >= 66 else 0.0
+    try:
+        for line in lines:
+            if not line.startswith("ATOM"):
+                continue
+            if line[12:16].strip() != "CA":
+                continue
             
-            # Convert to single letter amino acid
-            aa = AA3_TO_1.get(resname, "X")
-            
-            # Use altloc preference: '' or 'A' preferred
-            key = (resseq, icode)
-            chains.setdefault(chain_id, {})
-            
-            if key not in chains[chain_id] or altloc in ("", "A"):
-                chains[chain_id][key] = {
-                    "aa": aa,
-                    "resseq": resseq,
-                    "icode": icode,
-                    "bfactor": bfactor
-                }
-        except Exception:
-            continue
+            try:
+                altloc = line[16].strip()
+                resname = line[17:20].strip().upper()
+                chain_id = line[21].strip() or "A"
+                resseq = int(line[22:26])
+                icode = line[26].strip()
+                bfactor = float(line[60:66]) if len(line) >= 66 else 0.0
+                
+                # Convert to single letter amino acid
+                aa = AA3_TO_1.get(resname, "X")
+                
+                # Use altloc preference: '' or 'A' preferred
+                key = (resseq, icode)
+                if chain_id not in chains:
+                    chains[chain_id] = {}
+                
+                if key not in chains[chain_id] or altloc in ("", "A"):
+                    chains[chain_id][key] = {
+                        "aa": aa,
+                        "resseq": resseq,
+                        "icode": icode,
+                        "bfactor": bfactor
+                    }
+            except Exception:
+                continue
+    except Exception as e:
+        raise ValueError(f"Failed to parse ATOM records: {str(e)}")
     
     if not chains:
         raise ValueError("No CA atoms found in PDB")
     
-    # Choose the longest chain
-    chosen_chain = max(chains.keys(), key=lambda c: len(chains[c]))
-    residues = list(chosen_chain.values())
-    residues.sort(key=lambda r: (r["resseq"], r["icode"]))
-    
-    # Heuristic: if bfactor values are in [0, 100], treat as pLDDT
-    if metric_name == "bfactor":
-        bvals = [r["bfactor"] for r in residues if not np.isnan(r["bfactor"])]
-        if bvals and 0 <= np.median(bvals) <= 100:
-            source = "alphafold"
-            metric_name = "plddt"
-    
-    return {
-        "source": source,
-        "metric_name": metric_name,
-        "chain": chosen_chain,
-        "residues": residues
-    }
+    try:
+        # Choose the longest chain
+        chosen_chain = max(chains.keys(), key=lambda c: len(chains[c]))
+        residues = list(chains[chosen_chain].values())
+        residues.sort(key=lambda r: (r["resseq"], r["icode"]))
+        
+        # Heuristic: if bfactor values are in [0, 100], treat as pLDDT
+        if metric_name == "bfactor":
+            bvals = [r["bfactor"] for r in residues if not np.isnan(r["bfactor"])]
+            if bvals and 0 <= np.median(bvals) <= 100:
+                source = "alphafold"
+                metric_name = "plddt"
+        
+        return {
+            "source": source,
+            "metric_name": metric_name,
+            "chain": chosen_chain,
+            "residues": residues
+        }
+    except Exception as e:
+        raise ValueError(f"Failed to process parsed chains: {str(e)}")
 
 # ============================================================================
 # FEATURE EXTRACTOR (unchanged from original)
