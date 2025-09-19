@@ -8,7 +8,7 @@ Now with high-performance gemmi-based parsing for 10-20x faster CIF processing.
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import os
 import numpy as np
 import pandas as pd
@@ -194,23 +194,32 @@ FEATURE_NAMES = [
 # ============================================================================
 
 class PdbResidueOut(BaseModel):
-    chain: str
-    resi: int
-    aa: Optional[str] = None
-    pdb_cl: float
-    plddt: Optional[float] = None
-    bfactor: Optional[float] = None
-    # Confidence score (unified field for both pLDDT and bfactor)
-    confidence: Optional[float] = None
-    confidence_type: Optional[str] = None  # "plddt", "bfactor", or "none"
-    # Expose existing feature values
+    # Required fields for robust PDB/mmCIF mapping
+    auth_asym_id: str = Field(..., description="Chain identifier (auth_asym_id)")
+    auth_seq_id: int = Field(..., description="Residue sequence number (auth_seq_id)")
+    icode: str = Field(default="", description="Insertion code for residues like 100A/100B")
+    model_id: int = Field(default=1, description="Model number for multi-model PDBs")
+    
+    # EWCL prediction and biophysical properties
+    ewcl: float = Field(..., description="EWCL collapse likelihood score")
+    aa: str = Field(..., description="One-letter amino acid code")
     hydropathy: Optional[float] = None
     charge_pH7: Optional[float] = None
     curvature: Optional[float] = None
+    
+    # Confidence scores (one will be null, the other will have the value)
+    plddt: Optional[float] = None  # AlphaFold confidence (0-100)
+    bfactor: Optional[float] = None  # X-ray B-factor
+    
+    # Legacy fields for backward compatibility
+    chain: Optional[str] = None  # Deprecated: use auth_asym_id
+    resi: Optional[int] = None   # Deprecated: use auth_seq_id
+    pdb_cl: Optional[float] = None  # Deprecated: use ewcl
 
 class PdbOut(BaseModel):
     id: str
     model: str
+    scale: str = Field(default="0-1", description="Score scale range")
     residues: List[PdbResidueOut]
     diagnostics: dict = {}
 
@@ -553,15 +562,27 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             aa_1letter = AA3_TO_1.get(aa_3letter.upper(), "X")
             
             residues_out.append(PdbResidueOut(
-                chain=str(row["chain"]),
-                resi=int(row["auth_seq_id"]) if row["auth_seq_id"] is not None else i + 1,
-                aa=aa_1letter,  # Use 1-letter code
-                pdb_cl=float(predictions[i]),
-                plddt=plddt,
-                bfactor=bfactor,
+                # Required fields for robust mapping
+                auth_asym_id=str(row["chain"]),
+                auth_seq_id=int(row["auth_seq_id"]) if row["auth_seq_id"] is not None else i + 1,
+                icode="",  # No insertion codes in current implementation
+                model_id=1,  # Single model
+                
+                # EWCL prediction and biophysical properties
+                ewcl=float(predictions[i]),
+                aa=aa_1letter,
                 hydropathy=hydropathy,
                 charge_pH7=charge_pH7,
-                curvature=curvature
+                curvature=curvature,
+                
+                # Confidence scores
+                plddt=plddt,
+                bfactor=bfactor,
+                
+                # Legacy fields for backward compatibility
+                chain=str(row["chain"]),
+                resi=int(row["auth_seq_id"]) if row["auth_seq_id"] is not None else i + 1,
+                pdb_cl=float(predictions[i])
             ))
         
         # Add local metadata if no external metadata was found
