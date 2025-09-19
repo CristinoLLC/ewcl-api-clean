@@ -1,0 +1,1 @@
+{"detail":"Failed to parse structure: gemmi=string:1:0(0): expected block header (data_) ; biopython=The input mmCIF file must begin with a 'data_' directive."}

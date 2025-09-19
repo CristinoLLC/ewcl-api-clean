@@ -199,7 +199,24 @@ async def rewrite_pdb_with_ewcl(
         import json
         try:
             overlay_data = json.loads(overlay)
-            overlay_residues = [OverlayResidue(**item) for item in overlay_data]
+            # Handle both flat array and nested structure
+            if "residues" in overlay_data:
+                residues_data = overlay_data["residues"]
+            else:
+                residues_data = overlay_data
+            
+            overlay_residues = []
+            for item in residues_data:
+                # Map auth_asym_id to chain and auth_seq_id to resi for compatibility
+                if "auth_asym_id" in item and "auth_seq_id" in item:
+                    overlay_residues.append(OverlayResidue(
+                        chain=item["auth_asym_id"],
+                        resi=item["auth_seq_id"],
+                        ewcl=item["ewcl"],
+                        icode=item.get("icode", "")
+                    ))
+                else:
+                    overlay_residues.append(OverlayResidue(**item))
         except (json.JSONDecodeError, ValueError) as e:
             raise HTTPException(status_code=400, detail=f"Invalid overlay JSON: {e}")
         
@@ -270,18 +287,32 @@ async def rewrite_pdb_from_analysis(
                 icode=residue.icode
             ))
         
-        # Read original file content
-        data = await file.read()
+        # Use the already read data
         text_data = data.decode('utf-8')
         
-        # Apply EWCL overlay
+        # Apply EWCL overlay - always return PDB format
         is_cif = text_data.strip().startswith('data_')
         if is_cif:
-            modified_content = apply_ewcl_to_cif(text_data, overlay_residues)
-            content_type = "chemical/x-mmcif"
+            # For mmCIF files, we need to convert to PDB format first
+            # Use the same parsing logic as the analysis endpoint
+            from backend.api.utils.structure_io import parse_structure
+            df, backend = parse_structure(data, file.filename)
+            if df is None or df.empty:
+                raise HTTPException(status_code=400, detail="Failed to parse mmCIF structure")
+            
+            # Convert DataFrame to PDB format
+            pdb_lines = []
+            for _, row in df.iterrows():
+                if row.get('atom') in ['CA', 'CB', 'C', 'N', 'O']:  # Only backbone atoms for simplicity
+                    pdb_line = f"ATOM  {row.get('serial', 1):5d} {row.get('atom', 'CA'):4s} {row.get('resname', 'UNK'):3s} {row.get('chain', 'A'):1s}{row.get('auth_seq_id', 1):4d}    {row.get('x', 0):8.3f}{row.get('y', 0):8.3f}{row.get('z', 0):8.3f}  1.00{row.get('bfactor', 0):6.2f}           {row.get('element', 'C'):2s}"
+                    pdb_lines.append(pdb_line)
+            
+            pdb_content = '\n'.join(pdb_lines)
+            modified_content = apply_ewcl_to_pdb(pdb_content, overlay_residues)
         else:
             modified_content = apply_ewcl_to_pdb(text_data, overlay_residues)
-            content_type = "chemical/x-pdb"
+        
+        content_type = "chemical/x-pdb"
         
         # Return modified file
         return PlainTextResponse(
