@@ -12,7 +12,7 @@ The service:
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import re
@@ -169,7 +169,7 @@ def apply_ewcl_to_cif(cif_text: str, overlay: List[OverlayResidue]) -> str:
     
     return '\n'.join(lines)
 
-@router.post("/rewrite-pdb", response_class=PlainTextResponse)
+@router.post("/rewrite-pdb")
 async def rewrite_pdb_with_ewcl(
     file: UploadFile = File(..., description="PDB or mmCIF structure file"),
     overlay: str = File(..., description="JSON overlay data with EWCL scores")
@@ -178,16 +178,15 @@ async def rewrite_pdb_with_ewcl(
     Rewrite PDB/mmCIF file with EWCL scores as B-factors.
     
     This endpoint takes a structure file and overlay data, then returns
-    a modified PDB file where the B-factor column contains EWCL scores
-    scaled to 0-100 range. This allows standard PDB viewers to display
-    EWCL scores using built-in temperature factor coloring.
+    raw PDB bytes where the B-factor column contains EWCL scores
+    scaled to 0-100 range. Optimized for direct use with Mol* viewer.
     
     Args:
         file: Original PDB or mmCIF structure file
         overlay: JSON string containing overlay data with EWCL scores
         
     Returns:
-        Modified PDB file with EWCL scores as B-factors
+        Raw PDB bytes with EWCL scores as B-factors
     """
     try:
         # Read and validate input
@@ -232,12 +231,12 @@ async def rewrite_pdb_with_ewcl(
             modified_content = apply_ewcl_to_pdb(text_data, overlay_residues)
             content_type = "chemical/x-pdb"
         
-        # Return modified file
-        return PlainTextResponse(
-            content=modified_content,
-            media_type=content_type,
+        # Return modified file as raw bytes for Mol* frontend loader
+        return Response(
+            content=modified_content.encode('utf-8'),
+            media_type="chemical/x-pdb",
             headers={
-                "Content-Disposition": f"attachment; filename=ewcl_{file.filename}",
+                "Content-Disposition": 'inline; filename="ewcl_overlay.pdb"',
                 "X-EWCL-Applied": "true",
                 "X-Scale": "0-100"
             }
@@ -248,7 +247,7 @@ async def rewrite_pdb_with_ewcl(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
-@router.post("/rewrite-pdb-from-analysis", response_class=PlainTextResponse)
+@router.post("/rewrite-pdb-from-analysis")
 async def rewrite_pdb_from_analysis(
     file: UploadFile = File(..., description="PDB or mmCIF structure file")
 ):
@@ -257,6 +256,7 @@ async def rewrite_pdb_from_analysis(
     a PDB file with EWCL scores as B-factors.
     
     This combines structure analysis and PDB rewriting in a single call.
+    Returns raw PDB bytes for direct use with Mol* viewer.
     """
     try:
         # First, analyze the structure to get EWCL scores
@@ -314,12 +314,12 @@ async def rewrite_pdb_from_analysis(
         
         content_type = "chemical/x-pdb"
         
-        # Return modified file
-        return PlainTextResponse(
-            content=modified_content,
-            media_type=content_type,
+        # Return modified file as raw bytes for Mol* frontend loader
+        return Response(
+            content=modified_content.encode('utf-8'),
+            media_type="chemical/x-pdb",
             headers={
-                "Content-Disposition": f"attachment; filename=ewcl_{file.filename}",
+                "Content-Disposition": 'inline; filename="ewcl_overlay.pdb"',
                 "X-EWCL-Applied": "true",
                 "X-Scale": "0-100",
                 "X-Model": analysis_result.model
