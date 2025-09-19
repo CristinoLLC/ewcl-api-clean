@@ -532,13 +532,21 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             curvature = _first_present(feature_matrix, i, "curvature_x", "curvature_y")
             
             
-            # Prepare confidence metrics
+            # Prepare confidence metrics - detect AlphaFold vs X-ray structures
             plddt = None
             bfactor = None
-            if backend == "alphafold":
-                plddt = float(confidence[i])
+            
+            # Detect AlphaFold structures by filename pattern (more reliable than B-factor range)
+            is_alphafold = (
+                "AF-" in (file.filename or "") or 
+                "alphafold" in (file.filename or "").lower() or
+                "model_v" in (file.filename or "").lower()
+            )
+            
+            if is_alphafold:
+                plddt = float(confidence[i])  # AlphaFold pLDDT scores
             else:
-                bfactor = float(confidence[i])
+                bfactor = float(confidence[i])  # X-ray B-factors
             
             # Convert 3-letter amino acid code to 1-letter code for response
             aa_3letter = row["resname"]
