@@ -204,6 +204,14 @@ try:
 except Exception as e:
     log.warning(f"[warn] EWCL-H router not mounted: {e}")
 
+# PDB rewrite service
+try:
+    from backend.api.routers.ewcl_pdb_rewrite import router as ewcl_pdb_rewrite_router
+    app.include_router(ewcl_pdb_rewrite_router)
+    log.info("[init] EWCL PDB rewrite router enabled")
+except Exception as e:
+    log.warning(f"[warn] EWCL PDB rewrite router not mounted: {e}")
+
 # ── health + models status ──────────────────────────────────────────────────
 @app.get("/")
 def root():
