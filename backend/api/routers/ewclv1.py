@@ -39,11 +39,35 @@ class ResidueOut(BaseModel):
     helix_prop: float
     sheet_prop: float
 
+class WindowOut(BaseModel):
+    start: int
+    end: int
+    mean_hydro: float
+    mean_charge: float
+    mean_ewcl: float
+
+class GlobalsOut(BaseModel):
+    mean_hydro: float
+    mean_charge: float
+
+class MetaOut(BaseModel):
+    window_size: int
+    tau: float
+
+class IDRRegion(BaseModel):
+    start: int
+    end: int
+    length: int
+
 class EwclOut(BaseModel):
+    meta: MetaOut
     id: str
     model: str
     length: int
     residues: List[ResidueOut]
+    windows: List[WindowOut]
+    globals: GlobalsOut
+    idr_regions: List[IDRRegion]
     diagnostics: dict = {}
 
 def _model_cache_key(path: str) -> tuple:
@@ -301,6 +325,66 @@ async def analyze_fasta(file: UploadFile = File(...)):
         }
         out_list.append(r)
 
+    # Calculate sliding windows (41-residue window)
+    window_size = 41
+    window_half = window_size // 2
+    windows = []
+    
+    for i in range(len(seq)):
+        start_idx = max(0, i - window_half)
+        end_idx = min(len(seq), i + window_half + 1)
+        
+        window_hydro = [feats.iloc[j]["hydropathy"] for j in range(start_idx, end_idx)]
+        window_charge = [feats.iloc[j]["charge_pH7"] for j in range(start_idx, end_idx)]
+        window_ewcl = [p[j] for j in range(start_idx, end_idx)]
+        
+        windows.append({
+            "start": start_idx + 1,  # 1-based indexing
+            "end": end_idx,  # 1-based indexing
+            "mean_hydro": float(np.mean(window_hydro)),
+            "mean_charge": float(np.mean(window_charge)),
+            "mean_ewcl": float(np.mean(window_ewcl))
+        })
+
+    # Calculate global statistics
+    globals_data = {
+        "mean_hydro": float(feats["hydropathy"].mean()),
+        "mean_charge": float(feats["charge_pH7"].mean())
+    }
+
+    # Identify IDR regions (regions with cl > 0.5, minimum length 10)
+    idr_regions = []
+    in_idr = False
+    idr_start = None
+    threshold = 0.5
+    min_length = 10
+    
+    for i, cl_val in enumerate(p):
+        if cl_val > threshold:
+            if not in_idr:
+                idr_start = i + 1  # 1-based indexing
+                in_idr = True
+        else:
+            if in_idr:
+                idr_length = i - (idr_start - 1)
+                if idr_length >= min_length:
+                    idr_regions.append({
+                        "start": idr_start,
+                        "end": i,
+                        "length": idr_length
+                    })
+                in_idr = False
+    
+    # Handle case where sequence ends in IDR
+    if in_idr:
+        idr_length = len(seq) - (idr_start - 1)
+        if idr_length >= min_length:
+            idr_regions.append({
+                "start": idr_start,
+                "end": len(seq),
+                "length": idr_length
+            })
+
     # Diagnostics for debugging
     constant_preds = len(set(round(x["cl"], 6) for x in out_list)) <= 1
     if constant_preds:
@@ -314,10 +398,17 @@ async def analyze_fasta(file: UploadFile = File(...)):
     }
 
     return {
+        "meta": {
+            "window_size": window_size,
+            "tau": 0.5  # threshold for IDR identification
+        },
         "id": seq_id,
         "model": "disorder-collapse",  # Generic name, not ewclv1
         "length": len(seq),
         "residues": out_list,
+        "windows": windows,
+        "globals": globals_data,
+        "idr_regions": idr_regions,
         "diagnostics": diagnostics
     }
 

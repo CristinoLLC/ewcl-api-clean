@@ -233,7 +233,7 @@ def readyz():
 
 # cache for /models
 _HEALTH_CACHE = {"ts": 0.0, "data": None}
-_HEALTH_TTL_SECONDS = 30.0
+_HEALTH_TTL_SECONDS = 300.0  # 5 minutes instead of 30 seconds
 
 @app.get("/models")
 async def models():
