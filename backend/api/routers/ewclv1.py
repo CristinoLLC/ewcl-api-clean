@@ -238,6 +238,16 @@ async def analyze_fasta(file: UploadFile = File(...)):
     try:
         block = build_ewclv1_features(seq, pssm=None, expand_aa_onehot=False)
         feats = block.all_df
+        
+        # Debug: Check feature extraction
+        log.info(f"[ewclv1] Features extracted: {feats.shape}, columns: {list(feats.columns[:10])}")
+        if "hydropathy" in feats.columns:
+            hydro_range = f"{feats['hydropathy'].min():.2f} - {feats['hydropathy'].max():.2f}"
+            log.info(f"[ewclv1] Hydropathy range: {hydro_range}")
+        if "charge_pH7" in feats.columns:
+            charge_range = f"{feats['charge_pH7'].min():.2f} - {feats['charge_pH7'].max():.2f}"
+            log.info(f"[ewclv1] Charge range: {charge_range}")
+            
     except Exception as e:
         log.exception("[disorder] feature building failed")
         raise HTTPException(status_code=500, detail=f"Feature extraction failed: {e}")
@@ -342,6 +352,12 @@ async def analyze_fasta(file: UploadFile = File(...)):
         else:
             z = mdl.decision_function(X)
             p = 1 / (1 + np.exp(-z))
+        
+        # Debug: Check prediction values
+        log.info(f"[ewclv1] Predictions range: {np.min(p):.3f} - {np.max(p):.3f}, mean: {np.mean(p):.3f}")
+        if np.all(p == 0):
+            log.error("[ewclv1] All predictions are zero - model prediction failed!")
+            
     except Exception as e:
         log.exception("[disorder] inference failed")
         raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
@@ -374,20 +390,36 @@ async def analyze_fasta(file: UploadFile = File(...)):
     for i, aa in enumerate(seq):
         row = feats.iloc[i]
         
-        # Use actual flexibility/curvature from model features or proxy
-        flex_val = float(row["flexibility"]) if has_flexibility else float(row["helix_prop"]) if has_helix_prop else 0.22
-        curv_val = float(row["sheet_prop"]) if has_sheet_prop else 0.08  # Turn/coil proxy
+        # Debug: Check if values are coming through correctly
+        ewcl_val = float(p[i]) if i < len(p) else 0.0
+        hydro_val = float(row["hydropathy"]) if "hydropathy" in row and pd.notna(row["hydropathy"]) else 0.0
+        charge_val = float(row["charge_pH7"]) if "charge_pH7" in row and pd.notna(row["charge_pH7"]) else 0.0
         
+        # Use actual flexibility/curvature from model features or proxy  
+        flex_val = 0.0
+        if has_flexibility and "flexibility" in row and pd.notna(row["flexibility"]):
+            flex_val = float(row["flexibility"])
+        elif has_helix_prop and "helix_prop" in row and pd.notna(row["helix_prop"]):
+            flex_val = float(row["helix_prop"])
+        
+        curv_val = 0.0
+        if has_sheet_prop and "sheet_prop" in row and pd.notna(row["sheet_prop"]):
+            curv_val = float(row["sheet_prop"])
+            
+        # Log for debugging if all values are zero
+        if ewcl_val == 0.0 and hydro_val == 0.0 and charge_val == 0.0:
+            log.warning(f"[ewclv1] All zero values for residue {i+1}: {aa}")
+            
         residues.append({
             "i": i + 1,
             "aa": aa,
-            "ewcl": float(p[i]),
-            "hydropathy": float(row["hydropathy"]),
-            "charge": float(row["charge_pH7"]),
+            "ewcl": ewcl_val,
+            "hydropathy": hydro_val,
+            "charge": charge_val,
             "flex": flex_val,
             "curv": curv_val,
-            "bin5": ewcl_to_bin5(p[i]),
-            "z": z_scores[i]
+            "bin5": ewcl_to_bin5(ewcl_val),
+            "z": z_scores[i] if i < len(z_scores) else 0.0
         })
     
     # Calculate sliding windows with stride=5 for performance
