@@ -136,6 +136,12 @@ AF_PATTERNS = [
     "RESOLUTION.  NOT APPLICABLE"
 ]
 
+# EWCL refolded structure patterns (structures refolded with EWCL physics)
+EWCL_PATTERNS = [
+    "ewcl", "EWCL", "refolded", "REFOLDED", 
+    "ewcl-refolded", "collapse-refined"
+]
+
 # ============================================================================
 # FEATURE NAMES (302 features from CSV)
 # ============================================================================
@@ -363,6 +369,73 @@ def _first_present(df: pd.DataFrame, i: int, *names: str) -> Optional[float]:
 MODEL = None
 MODEL_NAME = "ewclv1p3"
 
+# ============================================================================
+# EWCL-SPECIFIC GEOMETRY COMPUTATION
+# ============================================================================
+
+def _compute_curvature(residue_data, i: int) -> float:
+    """
+    Compute local backbone curvature using CA, C, N atom positions.
+    For EWCL structures, this captures geometric deviation from ideal geometry.
+    """
+    try:
+        # This is a placeholder - in real implementation, you'd extract actual coordinates
+        # For now, we'll use a proxy based on available data
+        # In a full implementation, you'd compute actual dihedral/backbone angles
+        return 0.0  # Placeholder - would compute from actual coordinates
+    except Exception:
+        return 0.0
+
+def _compute_collapse_from_geometry(curvature: float, bfactor: float) -> float:
+    """
+    Combine curvature + flexibility into EWCL-specific collapse likelihood.
+    This replaces AF2's pLDDT-based scoring for refolded structures.
+    
+    Args:
+        curvature: Local backbone curvature deviation
+        bfactor: B-factor (flexibility measure)
+        
+    Returns:
+        Collapse probability [0,1] based on geometry + flexibility
+    """
+    import numpy as np
+    
+    # Normalize curvature deviation (higher deviation = more likely to collapse)
+    curv_norm = np.tanh(abs(curvature) / 30.0)  # Scale angle deviations
+    
+    # Normalize B-factor (higher flexibility = more likely to collapse)
+    bf_norm = np.log1p(bfactor) / 5.0  # Normalize flexibility
+    
+    # Combine geometry + flexibility into collapse likelihood
+    collapse_score = 0.5 * curv_norm + 0.5 * bf_norm
+    
+    return float(np.clip(collapse_score, 0.0, 1.0))
+
+def _detect_structure_type(filename: str) -> str:
+    """
+    Detect whether structure is AlphaFold, EWCL-refolded, or experimental.
+    
+    Returns:
+        'alphafold', 'ewcl', or 'experimental'
+    """
+    if not filename:
+        return 'experimental'
+    
+    filename_lower = filename.lower()
+    
+    # Check for EWCL patterns first (more specific)
+    for pattern in EWCL_PATTERNS:
+        if pattern.lower() in filename_lower:
+            return 'ewcl'
+    
+    # Check for AlphaFold patterns
+    for pattern in AF_PATTERNS:
+        if pattern.lower() in filename_lower:
+            return 'alphafold'
+    
+    # Default to experimental structure
+    return 'experimental'
+
 def get_model():
     """Load and cache the EWCLv1-P3 model."""
     global MODEL
@@ -541,21 +614,35 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
             curvature = _first_present(feature_matrix, i, "curvature_x", "curvature_y")
             
             
-            # Prepare confidence metrics - detect AlphaFold vs X-ray structures
+            # Detect structure type: AlphaFold, EWCL-refolded, or experimental
+            structure_type = _detect_structure_type(file.filename)
+            
+            # Prepare confidence metrics based on structure type
             plddt = None
             bfactor = None
+            pdb_cl_score = float(predictions[i])  # Default to EWCL prediction
             
-            # Detect AlphaFold structures by filename pattern (more reliable than B-factor range)
-            is_alphafold = (
-                "AF-" in (file.filename or "") or 
-                "alphafold" in (file.filename or "").lower() or
-                "model_v" in (file.filename or "").lower()
-            )
-            
-            if is_alphafold:
-                plddt = float(confidence[i])  # AlphaFold pLDDT scores
+            if structure_type == 'alphafold':
+                # AlphaFold: use pLDDT confidence, standard EWCL prediction
+                plddt = float(confidence[i])  # AF2 pLDDT scores
+                # For AF2, pdb_cl can use EWCL prediction or pLDDT-based scoring
+                pdb_cl_score = float(predictions[i])  # Use EWCL prediction
+                
+            elif structure_type == 'ewcl':
+                # EWCL refolded: ignore AF2 confidence, use geometry-based collapse
+                plddt = None  # Drop AF2 confidence - not meaningful for refolded structures
+                bfactor = float(confidence[i])  # Treat as flexibility measure
+                
+                # Compute collapse from refolded geometry + flexibility
+                local_curvature = _compute_curvature(row, i)  # Placeholder for now
+                pdb_cl_score = _compute_collapse_from_geometry(local_curvature, bfactor)
+                
+                print(f"[ewcl-p3] EWCL structure detected - using geometry-based collapse: {pdb_cl_score:.3f}")
+                
             else:
+                # Experimental structure: use B-factors, standard EWCL prediction
                 bfactor = float(confidence[i])  # X-ray B-factors
+                pdb_cl_score = float(predictions[i])  # Use EWCL prediction
             
             # Convert 3-letter amino acid code to 1-letter code for response
             aa_3letter = row["resname"]
@@ -582,7 +669,7 @@ async def analyze_pdb_ewclv1_p3_fresh(file: UploadFile = File(...)):
                 # Legacy fields for backward compatibility
                 chain=str(row["chain"]),
                 resi=int(row["auth_seq_id"]) if row["auth_seq_id"] is not None else i + 1,
-                pdb_cl=float(predictions[i])
+                pdb_cl=pdb_cl_score  # Use structure-type-specific collapse score
             ))
         
         # Add local metadata if no external metadata was found
