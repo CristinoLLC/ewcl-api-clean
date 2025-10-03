@@ -5,6 +5,15 @@ import os, io, joblib, numpy as np
 from Bio import SeqIO
 # Removed the problematic meta import since we're implementing the feature extraction directly
 
+# Version safety check for EWCLv1-M model compatibility
+try:
+    from sklearn import __version__ as sklv
+    if not sklv.startswith("1.7."):
+        print(f"[ewcl-v1-m] ⚠️  Warning: EWCLv1-M expects scikit-learn 1.7.x, got {sklv}")
+        print("[ewcl-v1-m] Model outputs may be inconsistent due to version mismatch")
+except ImportError:
+    print("[ewcl-v1-m] ⚠️  scikit-learn not available for version check")
+
 # --- Load model once (env: EWCLV1_M_MODEL_PATH) ---
 _MODEL = None
 _FEATURE_ORDER: List[str] = []

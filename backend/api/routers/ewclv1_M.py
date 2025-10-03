@@ -10,6 +10,15 @@ from Bio import SeqIO
 import pandas as pd
 import logging
 
+# Version safety check for EWCLv1-M model compatibility
+try:
+    from sklearn import __version__ as sklv
+    if not sklv.startswith("1.7."):
+        print(f"[ewclv1-m] ⚠️  Warning: EWCLv1-M expects scikit-learn 1.7.x, got {sklv}")
+        print("[ewclv1-m] Model outputs may be inconsistent due to version mismatch")
+except ImportError:
+    print("[ewclv1-m] ⚠️  scikit-learn not available for version check")
+
 router = APIRouter()
 log = logging.getLogger("ewclv1-m")
 

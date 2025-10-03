@@ -10,6 +10,17 @@ from typing import Optional, Any, Dict
 import threading
 from pathlib import Path
 
+# Version safety check for all EWCL models compatibility
+try:
+    from sklearn import __version__ as sklv
+    if not sklv.startswith("1.7."):
+        print(f"[model-manager] ⚠️  Warning: EWCL models expect scikit-learn 1.7.x, got {sklv}")
+        print("[model-manager] Model outputs may be inconsistent due to version mismatch")
+    else:
+        print(f"[model-manager] ✅ Scikit-learn {sklv} compatible with EWCL models")
+except ImportError:
+    print("[model-manager] ⚠️  scikit-learn not available for version check")
+
 # Use a forward reference for ModelBundle to avoid circular import
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:

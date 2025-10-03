@@ -33,8 +33,13 @@ def load_model_forgiving(path: str):
     # Log file size + partial hash for sanity
     size_mb = p.stat().st_size / (1024*1024)
     print(f"[loader] loading {path} ({size_mb:.2f} MB), hash={_hash(path)}", flush=True)
+    sklearn_ver = _try_ver('sklearn')
     print(f"[loader] py={sys.version.split()[0]} "
-          f"sklearn={_try_ver('sklearn')} joblib={_try_ver('joblib')} numpy={_try_ver('numpy')}", flush=True)
+          f"sklearn={sklearn_ver} joblib={_try_ver('joblib')} numpy={_try_ver('numpy')}", flush=True)
+    
+    # Check sklearn version compatibility for EWCL models
+    if sklearn_ver not in ["not-installed", "unknown"] and not sklearn_ver.startswith("1.7."):
+        print(f"[loader] ⚠️  WARNING: EWCL models expect sklearn 1.7.x, got {sklearn_ver}", flush=True)
 
     with open(path, "rb") as f:
         blob = f.read()

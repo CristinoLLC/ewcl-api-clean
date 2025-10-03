@@ -5,6 +5,15 @@ import numpy as np
 import pandas as pd
 import os, joblib
 
+# Version safety check for EWCLv1-C model compatibility
+try:
+    from sklearn import __version__ as sklv
+    if not sklv.startswith("1.7."):
+        print(f"[ewclv1-c] ⚠️  Warning: EWCLv1-C expects scikit-learn 1.7.x, got {sklv}")
+        print("[ewclv1-c] Model outputs may be inconsistent due to version mismatch")
+except ImportError:
+    print("[ewclv1-c] ⚠️  scikit-learn not available for version check")
+
 router = APIRouter(prefix="/clinvar-simple", tags=["clinvar-simple"])
 
 # --- Model & Feature Definitions ---

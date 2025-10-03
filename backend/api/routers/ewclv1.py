@@ -15,6 +15,15 @@ from sklearn.exceptions import InconsistentVersionWarning
 warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 
+# Version safety check for EWCLv1 model compatibility
+try:
+    from sklearn import __version__ as sklv
+    if not sklv.startswith("1.7."):
+        print(f"[ewclv1] ⚠️  Warning: EWCLv1 expects scikit-learn 1.7.x, got {sklv}")
+        print("[ewclv1] Model outputs may be inconsistent due to version mismatch")
+except ImportError:
+    print("[ewclv1] ⚠️  scikit-learn not available for version check")
+
 from backend.models.feature_extractors.ewclv1_features import build_ewclv1_features
 from backend.models.loader import load_model_forgiving
 
