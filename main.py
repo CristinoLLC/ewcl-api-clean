@@ -167,6 +167,14 @@ try:
 except Exception as e:
     log.warning(f"[warn] ewclv1p3-fresh router not mounted: {e}")
 
+# ── disorder router (privacy-friendly alias for ewclv1-M) ────────────────────
+try:
+    from backend.api.routers.disorder import router as disorder_router
+    app.include_router(disorder_router)
+    log.info("[init] disorder router enabled")
+except Exception as e:
+    log.warning(f"[warn] disorder router not mounted: {e}")
+
 # ── ewcl-v1-c (clinvar) router ───────────────────────────────────────────────
 # This model has its own feature extraction logic, so it's managed separately.
 ENABLE_EWCLV1_C_ROUTER = os.environ.get("ENABLE_EWCLV1_C_ROUTER", "1") in ("1", "true", "True")  # Changed default to 1
@@ -211,6 +219,14 @@ try:
     log.info("[init] EWCL PDB rewrite router enabled")
 except Exception as e:
     log.warning(f"[warn] EWCL PDB rewrite router not mounted: {e}")
+
+# Benchmark validation service
+try:
+    from backend.api.routers.benchmarks import router as benchmarks_router
+    app.include_router(benchmarks_router)
+    log.info("[init] Benchmark validation router enabled")
+except Exception as e:
+    log.warning(f"[warn] Benchmark validation router not mounted: {e}")
 
 # ── health + models status ──────────────────────────────────────────────────
 @app.get("/")
